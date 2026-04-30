@@ -130,6 +130,15 @@ Derive the grain from these signals (in priority order):
 
 Do NOT deduplicate with ROW_NUMBER to force a `unique` test to pass.
 
+## Validate Project (Standalone)
+
+Run: `python3 "${CLAUDE_SKILL_DIR}/validate_project.py" "<project_dir>"`
+
+This runs `dbt parse` and produces a structured report of errors, warnings,
+and orphan patches (yml-defined models with no .sql file). Use this as the
+Step 2 validation when the MCP server is not available. Accepts an optional
+second argument for timeout in seconds (default 60).
+
 ## Rules
 
 - NEVER run `dbt` commands with `run_in_background` or `&` — dbt holds a database
