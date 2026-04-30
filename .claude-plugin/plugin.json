@@ -8,20 +8,5 @@
   },
   "repository": "https://github.com/SignalPilot-Labs/signalpilot-plugin",
   "license": "Apache-2.0",
-  "keywords": ["dbt", "sql", "database", "analytics", "data-engineering", "mcp"],
-  "mcpServers": "./.mcp.json",
-  "userConfig": {
-    "signalpilot_url": {
-      "title": "SignalPilot URL",
-      "description": "SignalPilot server URL (e.g. http://localhost:3300 for Docker, or https://your-instance.signalpilot.dev)",
-      "type": "string",
-      "sensitive": false
-    },
-    "signalpilot_token": {
-      "title": "API Token",
-      "description": "API token (optional for local Docker instances)",
-      "type": "string",
-      "sensitive": true
-    }
-  }
+  "keywords": ["dbt", "sql", "database", "analytics", "data-engineering", "mcp"]
 }

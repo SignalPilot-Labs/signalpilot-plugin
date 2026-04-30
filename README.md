@@ -2,23 +2,9 @@
 
 Governed AI database access — sandboxed queries, schema discovery, and intelligent model building powered by [SignalPilot](https://signalpilot.ai).
 
-## Quick Install
+## Install
 
-```bash
-# 1. Add the SignalPilot marketplace
-claude plugin marketplace add SignalPilot-Labs/signalpilot-plugin
-
-# 2. Install the plugin
-claude plugin install signalpilot-dbt@signalpilot
-```
-
-During install you'll be prompted for:
-- **SignalPilot URL**: `https://gateway.signalpilot.ai` (cloud) or `http://localhost:3300` (local)
-- **API Token**: Your `sp_` API key from the SignalPilot dashboard
-
-### MCP Server only (one-liner, no plugin)
-
-If you just want the MCP tools without skills/agents:
+### Step 1: Connect the MCP server
 
 ```bash
 # Cloud
@@ -29,9 +15,18 @@ claude mcp add --transport http signalpilot https://gateway.signalpilot.ai/mcp \
 claude mcp add --transport http signalpilot http://localhost:3300/mcp
 ```
 
+### Step 2: Install the plugin (optional — adds skills + agents)
+
+```bash
+claude plugin marketplace add SignalPilot-Labs/signalpilot-plugin
+claude plugin install signalpilot-dbt@signalpilot
+```
+
+Step 1 gives you all 30+ MCP tools. Step 2 adds skills and agents on top.
+
 ## What's Included
 
-### MCP Tools (30+)
+### MCP Tools (from Step 1)
 
 | Category | Tools |
 |----------|-------|
@@ -41,7 +36,7 @@ claude mcp add --transport http signalpilot http://localhost:3300/mcp
 | Governance | `check_budget`, `query_history`, `audit_model_sources`, `validate_model_output` |
 | Infrastructure | `list_database_connections`, `connection_health`, `connector_capabilities` |
 
-### Skills
+### Skills (from Step 2)
 
 | Skill | Description |
 |-------|-------------|
@@ -53,7 +48,7 @@ claude mcp add --transport http signalpilot http://localhost:3300/mcp
 | `/signalpilot-dbt:dbt-date-spines` | Fix current_date hazards in date spine models |
 | DB-specific | `bigquery-sql`, `snowflake-sql`, `duckdb-sql`, `sqlite-sql` |
 
-### Agents
+### Agents (from Step 2)
 
 | Agent | Description |
 |-------|-------------|
