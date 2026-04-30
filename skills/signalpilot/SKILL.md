@@ -5,17 +5,26 @@ description: "BLOCKING REQUIREMENT: If the user's message mentions dbt, SQL, dat
 
 # SignalPilot — Governed AI Database Access
 
-## Tools
-The SignalPilot MCP provides database access and data-aware tools:
+## MCP Tools
+The SignalPilot MCP provides governed database access:
 - `query_database` — governed read-only SQL execution
-- `dbt_project_map` — project overview: model status, column contracts, build order
-- `dbt_project_validate` — run `dbt parse` and return structured errors
-- `check_model_schema` — compare actual columns vs YML contract
-- `validate_model_output` — row count + basic checks
+- `validate_sql` / `explain_query` / `estimate_query_cost` — pre-execution checks
+- `schema_overview` / `schema_ddl` / `schema_link` — schema discovery
+- `describe_table` / `explore_table` / `explore_columns` / `explore_column` — deep dives
+- `list_tables` / `get_relationships` / `find_join_path` — structure and joins
+- `compare_join_types` — JOIN impact analysis
 - `get_date_boundaries` — date ranges across all tables
-- `schema_overview` / `describe_table` / `explore_table` — schema discovery
-- `find_join_path` / `compare_join_types` — relationship analysis
-- `debug_cte_query` — debugging utilities
+- `check_model_schema` / `validate_model_output` / `audit_model_sources` — dbt validation
+- `analyze_grain` — cardinality and grain analysis
+- `debug_cte_query` — step-through CTE debugging
+- `dbt_error_parser` — parse dbt error output into structured info
+- `list_projects` / `get_project` — dbt project management
+- `check_budget` / `connection_health` / `query_history` — operational
+
+## Local Scripts (via plugin)
+For local dbt project work, use these standalone scripts:
+- `scan_project.py` — scan a dbt project: models, stubs, deps, hazards, work order
+- `validate_project.py` — run `dbt parse` and report structural errors
 
 Use `ToolSearch` to discover additional tools as needed.
 
