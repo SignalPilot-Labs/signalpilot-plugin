@@ -56,21 +56,3 @@ dbt run --select <model_name>
 SELECT MIN(date_col), MAX(date_col), COUNT(*) FROM <model_name>
 ```
 The spine's max date must match the source data's endpoint, not today's date.
-
-## Fix Date Spine Hazards (Standalone)
-
-Run: `python3 "${CLAUDE_SKILL_DIR}/fix_date_spines.py" "<project_dir>" "<replacement_date>"`
-
-This scans all `.sql` files (outside `dbt_packages/`, `target/`, etc.) for
-`current_date`, `current_timestamp`, `now()`, `getdate()`, and `sysdate`,
-replacing each with `'<replacement_date>'::date`. Use `get_date_boundaries`
-to determine the correct replacement date first.
-
-## Fix Nondeterminism Hazards (Standalone)
-
-Run: `python3 "${CLAUDE_SKILL_DIR}/fix_nondeterminism.py" "<project_dir>"`
-
-This scans for `ROW_NUMBER()/RANK()/DENSE_RANK() OVER(...)` clauses with
-missing or single-column `ORDER BY` and reports them. It does NOT auto-fix
-because choosing the right tiebreaker requires schema knowledge — review
-each finding and add a primary key column to the `ORDER BY`.
