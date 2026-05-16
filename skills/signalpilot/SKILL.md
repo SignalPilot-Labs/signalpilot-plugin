@@ -44,6 +44,10 @@ Load these skills as needed for specialized work:
 - `/signalpilot-dbt:bigquery-sql` — BigQuery-specific patterns
 - `/signalpilot-dbt:sqlite-sql` — SQLite-specific patterns
 
+### Notion Context
+- `/signalpilot-dbt:notion-setup` — One-time setup: connect Notion MCP, configure search scope + report page
+- `/signalpilot-dbt:notion-context` — Gather business context from Notion (auto-runs in dbt workflow if configured)
+
 ### General SQL
 - `/signalpilot-dbt:sql-workflow` — Structured query building and verification
 
