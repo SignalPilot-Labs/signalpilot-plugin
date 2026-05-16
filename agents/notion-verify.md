@@ -15,7 +15,9 @@ If missing or no `verification_page_id` → STOP.
 1. `notion_context.md` — structured context gathered before build
    (definitions, decisions, constraints with source pages and relevance tags)
 2. `models/*.sql` — SQL files the agent wrote
-3. `agent_output.json` — build transcript (optional, for verification status)
+3. `agent_output.json` — build transcript. If this file does not exist (common
+   in interactive Claude Code sessions), infer build outcomes from the SQL files
+   and dbt output in the conversation. Do not waste turns searching for it.
 
 ## Step 1 — Read Context and Build Artifacts
 
