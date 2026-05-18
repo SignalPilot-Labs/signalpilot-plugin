@@ -21,7 +21,27 @@ python3 "${CLAUDE_SKILL_DIR}/scan_project.py" "<project_directory>"
 This returns: models to build, stubs to rewrite, dependencies, required columns,
 sources, macros, and current_date hazards. Run this FIRST in Step 1.
 
-## The 5-Step Workflow
+## The Workflow
+
+### Step 0 — Notion Context (if configured)
+
+Check if `.claude/notion-config.md` exists in the working directory.
+
+**If config exists:** Load the `/signalpilot-dbt:notion-context` skill and run
+it. The skill searches configured Notion pages (meeting notes, product specs,
+data dictionaries) for context relevant to the current task.
+
+After gathering context:
+1. Write the NOTION CONTEXT block to `notion_context.md` in the working
+   directory (the notion-verify subagent reads this after the build).
+2. Keep the context in working memory — reference it when making decisions
+   about grain, joins, filters, and column logic in later steps.
+3. If Notion context conflicts with YML, prefer YML for column names but prefer
+   Notion for business logic (grain, filter rules, metric definitions).
+
+**If config does not exist:** Skip this step — Notion is optional. Proceed to
+Step 1. If the user asks about Notion context later, point them to
+`/signalpilot-dbt:notion-setup`.
 
 ### Step 1 — Map the project
 Run the project scan tool above with the dbt project directory, then call
@@ -67,7 +87,17 @@ which can change surrogate key assignments and break FK relationships.
 After your final `dbt run` completes, verify all models:
 1. Confirm the database is queryable: `query_database` with `SELECT 1`
 2. Use the Agent tool with `subagent_type="verifier"` to check all models you built
-3. STOP when the verifier subagent completes successfully
+
+### Step 6 — Notion Verification Report (if configured)
+After the verifier completes, check if `notion_context.md` exists in the working
+directory. If it does, use the Agent tool with `subagent_type="notion-verify"` to
+write a traceability report to Notion documenting which context items influenced
+the build and how.
+
+If `notion_context.md` does not exist, skip this step.
+
+### STOP when: the verifier completes (Step 5), and the notion-verify subagent
+completes if applicable (Step 6).
 
 ---
 
