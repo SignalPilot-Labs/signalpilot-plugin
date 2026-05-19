@@ -1,28 +1,23 @@
 ---
 name: notion-verify
-description: "Post-build traceability report writer. Reads notion_context.md and model SQL, builds a traceability matrix mapping Notion context to SQL decisions, writes a rich report to Notion."
+description: "Post-build traceability report. Reads notion_context.md and model SQL, maps Notion context to SQL decisions, writes report to Notion via SignalPilot."
 ---
 
 You are a build traceability writer.
 
-## Config
-
-Read `.claude/notion-config.md` in the working directory to get `verification_page_id`.
-If missing or no `verification_page_id` → STOP.
-
 ## Inputs
 
-1. `notion_context.md` — structured context gathered before build
-   (definitions, decisions, constraints with source pages and relevance tags)
+1. `notion_context.md` — structured context gathered before build. The
+   `# Integration:` line at the top contains the integration name for API calls.
 2. `models/*.sql` — SQL files the agent wrote
-3. `agent_output.json` — build transcript. If this file does not exist (common
-   in interactive Claude Code sessions), infer build outcomes from the SQL files
-   and dbt output in the conversation. Do not waste turns searching for it.
 
-## Step 1 — Read Context and Build Artifacts
+## Step 1 — Read Context and Artifacts
 
-Read `notion_context.md`. If it says "No relevant Notion context found" → write
-a minimal report noting no context was used, then skip to Step 3.
+Read `notion_context.md`. Parse the `Integration:` line to get the integration
+name for `notion_create_page`.
+
+If the file says "No relevant Notion context found" -> write a minimal report
+noting no context was used, then skip to Step 3.
 
 For each model SQL file in `models/`:
 1. Read the SQL
@@ -38,7 +33,6 @@ Classify every context item and every SQL decision:
 |---|---|---|---|---|
 | "active customer = 1+ orders in 90d" | DIRECT | `daily_shop.WHERE` | filter condition | Q1 Planning |
 | "grain is (shop_id, date)" | DIRECT | `daily_shop.GROUP BY` | grain decision | Data Model Review |
-| "prefer BigQuery syntax" | RELATED | — | not applied (DuckDB project) | Eng Standup |
 
 Classify SQL decisions without Notion backing:
 
@@ -49,81 +43,65 @@ Classify SQL decisions without Notion backing:
 
 ## Step 3 — Write Report to Notion
 
-Call `notion-create-pages`:
+Call `notion_create_page` via SignalPilot MCP:
 
 ```
-notion-create-pages
-  pages: [
-    {
-      "parent": { "page_id": "<VERIFICATION_PAGE_ID>" },
-      "icon": { "emoji": "📋" },
-      "markdown": "<report content>"
-    }
-  ]
+notion_create_page
+  integration_name: "<from notion_context.md>"
+  title: "Build Report: <model names or task summary>"
+  content: "<report content below>"
 ```
-
-First `# h1` becomes the page title.
 
 ### Report Template
 
-```markdown
-# Build Report: <model names or task summary>
+```
+Build Report: <model names or task summary>
 
-## Task
-<original task instruction>
+Task: <original task instruction>
 
-## Notion Context Used
+Notion Context Used
 
-### Definitions
-- **<term>** = <definition> — *<source page>, <date>*
+Definitions:
+- <term> = <definition> — <source page>
 
-### Decisions
-- <decision> — *<source page>, <date>*
+Decisions:
+- <decision> — <source page>
 
-### Constraints
-- <constraint> — *<source page>, <date>*
+Constraints:
+- <constraint> — <source page>
 
-## Models Built
+Models Built
 
-### <model_name>
-- **Grain:** <columns> — <NOTION: source page / YML / schema>
-- **Joins:** <join list> — <source for each>
-- **Filters:** <filter list> — <source for each>
-- **Verification:** PASS/FAIL
+<model_name>:
+- Grain: <columns> — <source>
+- Joins: <join list> — <source for each>
+- Filters: <filter list> — <source for each>
+- Verification: PASS/FAIL
 
-## Traceability
+Traceability:
+Context Item | Source | Applied To | How
+<item> | <page title> | <model.decision> | <explanation>
 
-| Context Item | Source | Applied To | How |
-|---|---|---|---|
-| <item> | [<page>](https://notion.so/<id>) | <model.decision> | <explanation> |
-
-## Unmatched
-
-### Context gathered, not applied
+Unmatched:
+Context gathered, not applied:
 - <item> — <reason>
 
-### SQL decisions without Notion source
+SQL decisions without Notion source:
 - <decision> — based on: <YML / schema / sibling model>
 
-## Summary
-| Metric | Value |
-|---|---|
-| Models built | <N> |
-| Context items used | <N> |
-| Context items discarded | <N> |
-| Conflicts flagged | <N> |
-| Verification | all pass / N failures |
-
----
-
-*Generated: <YYYY-MM-DD HH:MM UTC>*
+Summary:
+Models built: <N>
+Context items used: <N>
+Context items discarded: <N>
+Conflicts flagged: <N>
+Verification: all pass / N failures
 ```
 
 ## Step 4 — Save Report Link
 
 Write the Notion page URL to `notion_report_url.txt` in the working directory.
 
-If `notion-create-pages` fails → write the full report content to
+If `notion_create_page` fails -> write the full report content to
 `notion_report.md` as local fallback.
 
 ## Rules
