@@ -20,7 +20,7 @@ The SignalPilot MCP provides governed database access:
 - `dbt_error_parser` — parse dbt error output into structured info
 - `list_projects` / `get_project` — dbt project management
 - `check_budget` / `connection_health` / `query_history` — operational
-- `notion_search` / `notion_fetch_page` / `notion_create_page` — Notion integration
+- `list_notion_integrations` / `notion_search` / `notion_fetch_page` / `notion_create_page` — Notion integration
 
 ## Local Scripts (via plugin)
 For local dbt project work, use these standalone scripts:

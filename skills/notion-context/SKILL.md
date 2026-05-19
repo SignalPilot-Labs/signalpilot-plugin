@@ -9,7 +9,7 @@ Gather business context from Notion using SignalPilot's governed Notion tools.
 
 ## 1. Find the Integration
 
-Call `list_database_connections` — this also lists Notion integrations. Pick
+Call `list_notion_integrations` to see all configured Notion integrations. Pick
 the integration to use:
 
 - If the user named one in the task instruction, use that.
