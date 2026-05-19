@@ -17,14 +17,6 @@ the integration to use:
 - If multiple exist and none was specified, list them and ask the user.
 - If none exist, skip — Notion context is optional. Do not block the workflow.
 
-Verify the integration works with a test search:
-
-```
-notion_search
-  integration_name: "<name>"
-  query: "test"
-```
-
 Save the working `integration_name` for all subsequent calls.
 
 ## 2. Search
@@ -43,8 +35,8 @@ notion_search
 2. Synonyms ("revenue" -> "sales")
 3. Individual terms
 
-If still nothing -> write `No relevant Notion context found.` to
-`notion_context.md` (include the `# Integration:` header) and return.
+If still nothing -> write the context file with `No relevant Notion context
+found.` (include the `# Integration:` header) and return.
 
 ## 3. Fetch and Navigate
 
@@ -62,7 +54,7 @@ and transcripts are typically one level down from the container.
 
 **If the page has content** — extract from it directly.
 
-## 4. Extract Context
+## 4. Extract and Tag Context
 
 Scan page content for three categories:
 
@@ -72,10 +64,20 @@ Scan page content for three categories:
 | **DECISION** | "we decided", "agreed to", "going with" | "grain is (shop_id, date)" |
 | **CONSTRAINT** | "exclude", "only include", "must filter" | "exclude test orders where source = 'internal'" |
 
-For each item record:
+For each item, tag its **relevance** to the current task:
+
+| Tag | Criteria |
+|---|---|
+| DIRECT | Names a table, column, metric, or filter in the current task |
+| RELATED | Same domain but doesn't name specific objects in the task |
+
+Discard items with no connection to the task.
+
+For each kept item record:
 - Verbatim excerpt (under 200 chars) or paraphrase
 - Source page title and ID
-- Category tag (DEFINITION / DECISION / CONSTRAINT)
+- Category (DEFINITION / DECISION / CONSTRAINT)
+- Relevance (DIRECT / RELATED)
 
 Check for **contradictions** between items. If two sources disagree, flag both
 with `CONFLICT:`. Do NOT silently pick one.
@@ -91,15 +93,17 @@ Write `notion_context.md` in the working directory:
 # Sources: <N> pages searched, <M> items extracted
 
 ## DEFINITIONS
-- [DEF-1] "<term>" = <definition>
+- [DEF-1] [DIRECT] "<term>" = <definition>
   Source: <page_title> — https://notion.so/<page_id>
 
 ## DECISIONS
-- [DEC-1] <decision statement>
+- [DEC-1] [DIRECT] <decision statement>
+  Source: <page_title> — https://notion.so/<page_id>
+- [DEC-2] [RELATED] <decision statement>
   Source: <page_title> — https://notion.so/<page_id>
 
 ## CONSTRAINTS
-- [CON-1] <constraint>
+- [CON-1] [DIRECT] <constraint>
   Source: <page_title> — https://notion.so/<page_id>
 
 ## CONFLICTS
@@ -109,17 +113,18 @@ Write `notion_context.md` in the working directory:
 - <page_title> — https://notion.so/<page_id> — <N> items extracted
 ```
 
-Each item gets a stable ID (DEF-1, DEC-1, CON-1, etc.) so the verify agent can
-reference them in the traceability matrix. This file is read by the notion-verify
-subagent after the build.
+Each item gets a stable ID (DEF-1, DEC-1, CON-1) and a relevance tag (DIRECT /
+RELATED). The verify agent uses these to check coverage — DIRECT items that are
+missing from SQL are flagged as verification failures.
 
 ## 6. Return to Agent
 
 Return DEFINITIONS, DECISIONS, and CONSTRAINTS to the calling agent. The agent
 MUST:
-- Reference items when making grain, join, filter, and column decisions
+- Apply DIRECT items when making grain, join, filter, and column decisions
+- Note RELATED items as supporting context
 - Write `-- NOTION: [DEF-1] <brief reason>` comments in SQL for every decision
-  influenced by Notion context. Use the item ID from `notion_context.md`.
+  influenced by Notion context. Use the item ID from the context file.
 - Flag CONFLICT items and explain which side was chosen
 
 ## Rules

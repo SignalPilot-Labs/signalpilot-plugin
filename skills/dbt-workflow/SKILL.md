@@ -25,13 +25,11 @@ sources, macros, and current_date hazards. Run this FIRST in Step 1.
 
 ### Step 0 — Notion Context (if configured)
 
-Check if a Notion integration is configured in SignalPilot by calling
-`notion_search` with a test query. If it returns results or an empty set, Notion
-is available. If it returns "integration not found", skip this step.
+Call `list_notion_integrations`. If it returns integrations, Notion is available.
+If none exist, skip this step — Notion is optional.
 
 **If Notion is available:** Load the `/signalpilot-dbt:notion-context` skill and
-run it. The skill searches Notion pages for meeting notes, product specs, and
-data dictionaries relevant to the current task.
+run it. The skill will use the integration discovered here.
 
 After gathering context:
 1. The skill writes `notion_context.md` in the working directory (the
@@ -41,8 +39,7 @@ After gathering context:
 3. If Notion context conflicts with YML, prefer YML for column names but prefer
    Notion for business logic (grain, filter rules, metric definitions).
 
-**If Notion is not configured:** Skip this step — Notion is optional. Proceed to
-Step 1.
+**If Notion is not configured:** Skip this step. Proceed to Step 1.
 
 ### Step 1 — Map the project
 Run the project scan tool above with the dbt project directory, then call

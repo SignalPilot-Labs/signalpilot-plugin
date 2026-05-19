@@ -33,16 +33,18 @@ For each model SQL file in `models/`:
 ## Step 3 — Verify (4 checks)
 
 ### CHECK 1 — Coverage
-Every context item from `notion_context.md` must be accounted for:
+Every context item from `notion_context.md` has a relevance tag ([DIRECT] or
+[RELATED]). Check each one:
 
-| Status | Meaning |
-|---|---|
-| APPLIED | Item ID appears in a `-- NOTION:` comment in SQL |
-| ACKNOWLEDGED | Agent noted it as RELATED but not directly applicable |
-| MISSING | Item was DIRECT relevance but has no `-- NOTION:` reference |
+| Item tag | Has `-- NOTION:` in SQL? | Status |
+|---|---|---|
+| DIRECT | Yes | APPLIED |
+| DIRECT | No | **MISSING** — verification failure |
+| RELATED | Yes | APPLIED (bonus) |
+| RELATED | No | ACKNOWLEDGED — not required |
 
-Flag every MISSING item. This is the most important check — it means the agent
-ignored business context that was directly relevant.
+Flag every **MISSING** item. A DIRECT item with no SQL reference means the agent
+ignored business context that was directly relevant to the task.
 
 ### CHECK 2 — Accuracy
 For each `-- NOTION:` comment in SQL, verify the SQL actually implements the
