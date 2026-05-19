@@ -1,28 +1,27 @@
 ---
 name: notion-context
-description: "Gather business context from Notion before dbt builds. Searches pages, extracts definitions/decisions/constraints, writes structured context for the build agent and notion-verify subagent."
+description: "Gather business context from Notion before dbt builds. Searches all configured integrations, extracts definitions/decisions/constraints, writes structured context for the build agent and notion-verify subagent."
 ---
 
 # Notion Context Skill
 
 Gather business context from Notion using SignalPilot's governed Notion tools.
 
-## 1. Find the Integration
+## 1. Discover Integrations
 
-Call `list_notion_integrations` to see all configured Notion integrations. Pick
-the integration to use:
+Call `list_notion_integrations`. If none exist, skip — Notion context is
+optional. Do not block the workflow.
 
-- If the user named one in the task instruction, use that.
-- If only one Notion integration exists, use it.
-- If multiple exist and none was specified, list them and ask the user.
-- If none exist, skip — Notion context is optional. Do not block the workflow.
+Note which integration has a **report destination configured** — the verify
+agent will write there. If multiple have report destinations, use the first.
+If none have one, the verify agent will fall back to a local file.
 
-Save the working `integration_name` for all subsequent calls.
-
-## 2. Search
+## 2. Search All Integrations
 
 Extract keywords from the task instruction — table names, metric names, business
 terms not defined in YML.
+
+For **each** integration, search:
 
 ```
 notion_search
@@ -30,21 +29,24 @@ notion_search
   query: "<keywords>"
 ```
 
-**No results?** Try in order:
+Merge results from all integrations. Track which integration each result came
+from — you'll need it for fetch calls.
+
+**No results across any integration?** Try in order:
 1. Broader keywords ("daily shop orders" -> "orders")
 2. Synonyms ("revenue" -> "sales")
 3. Individual terms
 
 If still nothing -> write the context file with `No relevant Notion context
-found.` (include the `# Integration:` header) and return.
+found.` and return.
 
 ## 3. Fetch and Navigate
 
-For each matching page (up to 5):
+For each matching page (up to 5 total across all integrations):
 
 ```
 notion_fetch_page
-  integration_name: "<name>"
+  integration_name: "<integration that owns this page>"
   page_id: "<id>"
 ```
 
@@ -75,7 +77,7 @@ Discard items with no connection to the task.
 
 For each kept item record:
 - Verbatim excerpt (under 200 chars) or paraphrase
-- Source page title and ID
+- Source page title, ID, and **integration name**
 - Category (DEFINITION / DECISION / CONSTRAINT)
 - Relevance (DIRECT / RELATED)
 
@@ -88,34 +90,33 @@ Write `notion_context.md` in the working directory:
 
 ```
 # NOTION CONTEXT
-# Integration: <integration_name>
+# Report Integration: <integration with report destination configured>
 # Task: <task summary>
-# Sources: <N> pages searched, <M> items extracted
+# Sources: <N> pages searched across <M> integrations, <K> items extracted
 
 ## DEFINITIONS
 - [DEF-1] [DIRECT] "<term>" = <definition>
-  Source: <page_title> — https://notion.so/<page_id>
+  Source: <page_title> — https://notion.so/<page_id> (via <integration_name>)
 
 ## DECISIONS
 - [DEC-1] [DIRECT] <decision statement>
-  Source: <page_title> — https://notion.so/<page_id>
+  Source: <page_title> — https://notion.so/<page_id> (via <integration_name>)
 - [DEC-2] [RELATED] <decision statement>
-  Source: <page_title> — https://notion.so/<page_id>
+  Source: <page_title> — https://notion.so/<page_id> (via <integration_name>)
 
 ## CONSTRAINTS
 - [CON-1] [DIRECT] <constraint>
-  Source: <page_title> — https://notion.so/<page_id>
+  Source: <page_title> — https://notion.so/<page_id> (via <integration_name>)
 
 ## CONFLICTS
-- <item A> (from <page_A>) vs <item B> (from <page_B>)
+- <item A> (from <page_A> via <integration_A>) vs <item B> (from <page_B> via <integration_B>)
 
 ## SOURCES CONSULTED
-- <page_title> — https://notion.so/<page_id> — <N> items extracted
+- <integration_name>: <page_title> — https://notion.so/<page_id> — <N> items
 ```
 
-Each item gets a stable ID (DEF-1, DEC-1, CON-1) and a relevance tag (DIRECT /
-RELATED). The verify agent uses these to check coverage — DIRECT items that are
-missing from SQL are flagged as verification failures.
+The `# Report Integration:` line tells the verify agent where to write the
+report. Each item tracks which integration it came from.
 
 ## 6. Return to Agent
 
@@ -132,3 +133,4 @@ MUST:
 - NEVER fabricate context. No Notion source = no context item.
 - NEVER block the workflow on missing context. It's supplementary.
 - NEVER silently resolve conflicts. Flag them.
+- Search ALL integrations, not just one.

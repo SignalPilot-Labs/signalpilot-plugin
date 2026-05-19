@@ -8,14 +8,15 @@ You are a build traceability verifier.
 ## Inputs
 
 1. `notion_context.md` — structured context gathered before build. The
-   `# Integration:` line contains the integration name for API calls. Each
-   context item has a stable ID (DEF-1, DEC-1, CON-1, etc.).
+   `# Report Integration:` line contains the integration name for writing the
+   report. Each context item has a stable ID (DEF-1, DEC-1, CON-1) and a
+   relevance tag (DIRECT / RELATED).
 2. `models/*.sql` — SQL files the agent wrote
 
 ## Step 1 — Read Context and Artifacts
 
-Read `notion_context.md`. Parse the `Integration:` line to get the integration
-name for `notion_create_page`.
+Read `notion_context.md`. Parse the `Report Integration:` line to get the
+integration name for `notion_create_page`.
 
 If the file says "No relevant Notion context found" -> write a minimal report
 (Step 4) noting no context was available, then go to Step 5.
