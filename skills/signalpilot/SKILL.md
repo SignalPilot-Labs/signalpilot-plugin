@@ -20,6 +20,7 @@ The SignalPilot MCP provides governed database access:
 - `dbt_error_parser` — parse dbt error output into structured info
 - `list_projects` / `get_project` — dbt project management
 - `check_budget` / `connection_health` / `query_history` — operational
+- `list_notion_integrations` / `notion_search` / `notion_fetch_page` / `notion_create_page` — Notion integration
 
 ## Local Scripts (via plugin)
 For local dbt project work, use these standalone scripts:
@@ -45,8 +46,7 @@ Load these skills as needed for specialized work:
 - `/signalpilot-dbt:sqlite-sql` — SQLite-specific patterns
 
 ### Notion Context
-- `/signalpilot-dbt:notion-setup` — One-time setup: connect Notion MCP, configure search scope + report page
-- `/signalpilot-dbt:notion-context` — Gather business context from Notion (auto-runs in dbt workflow if configured)
+- `/signalpilot-dbt:notion-context` — Gather business context from Notion (auto-runs in dbt workflow if a Notion integration is configured in SignalPilot)
 
 ### General SQL
 - `/signalpilot-dbt:sql-workflow` — Structured query building and verification

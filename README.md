@@ -35,6 +35,7 @@ Step 1 gives you all 30+ MCP tools. Step 2 adds skills and agents on top.
 | Analysis | `analyze_grain`, `schema_statistics`, `find_join_path`, `compare_join_types`, `get_date_boundaries`, `schema_diff` |
 | Governance | `check_budget`, `query_history`, `audit_model_sources`, `validate_model_output` |
 | Infrastructure | `list_database_connections`, `connection_health`, `connector_capabilities` |
+| Notion | `notion_search`, `notion_fetch_page`, `notion_create_page` |
 
 ### Skills (from Step 2)
 
@@ -47,8 +48,7 @@ Step 1 gives you all 30+ MCP tools. Step 2 adds skills and agents on top.
 | `/signalpilot-dbt:dbt-debugging` | Fix dbt run/parse failures |
 | `/signalpilot-dbt:dbt-date-spines` | Fix current_date hazards in date spine models |
 | DB-specific | `bigquery-sql`, `snowflake-sql`, `duckdb-sql`, `sqlite-sql` |
-| `/signalpilot-dbt:notion-setup` | One-time Notion MCP setup + search scope config |
-| `/signalpilot-dbt:notion-context` | Gather business context from Notion meeting notes |
+| `/signalpilot-dbt:notion-context` | Gather business context from Notion for dbt builds |
 
 ### Agents (from Step 2)
 
@@ -62,7 +62,7 @@ Step 1 gives you all 30+ MCP tools. Step 2 adds skills and agents on top.
 1. You ask Claude to build a dbt project or write SQL
 2. Claude loads the `signalpilot` skill (tools overview + skill router)
 3. For dbt projects, `dbt-workflow` orchestrates the workflow using SignalPilot MCP tools
-4. If Notion is configured, business context is gathered before building (Step 0)
+4. If a Notion integration is configured in SignalPilot, business context is gathered before building (Step 0)
 5. At Step 5, the `verifier` agent checks all models for correctness
 6. If Notion context was used, a traceability report is written to Notion (Step 6)
 7. You get a verified, working dbt project with full audit trail
@@ -74,18 +74,19 @@ specs, and data dictionaries for business context during dbt builds.
 
 ### Setup
 
-```bash
-# 1. Connect Notion MCP (browser OAuth on first use)
-claude mcp add --transport http --scope project notion https://mcp.notion.com/mcp
+1. Open the SignalPilot web UI at `http://localhost:3200/integrations`
+2. Click **Add** under the Notion section
+3. Paste your Notion internal integration access token
+4. Add page URLs for search scope (pages the agent can search)
+5. Add a report destination URL (where verification reports are created)
 
-# 2. Configure search scope + report page
-/signalpilot-dbt:notion-setup
-```
+Create a Notion integration at [notion.so/profile/integrations](https://www.notion.so/profile/integrations)
+to get an access token. Share pages with the integration in Notion for the agent to see them.
 
 ### What it does
 
-- **Before build:** Searches configured Notion pages for definitions, decisions,
-  and constraints relevant to the task. Tags each item by relevance (DIRECT/RELATED).
+- **Before build:** Searches Notion pages for definitions, decisions,
+  and constraints relevant to the task.
 - **During build:** Agent references Notion context when making grain, join, filter,
   and column decisions. Leaves `-- NOTION: <source>` comments in SQL.
 - **After build:** Writes a traceability report to Notion mapping every context

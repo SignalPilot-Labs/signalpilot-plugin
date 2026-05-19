@@ -25,23 +25,21 @@ sources, macros, and current_date hazards. Run this FIRST in Step 1.
 
 ### Step 0 — Notion Context (if configured)
 
-Check if `.claude/notion-config.md` exists in the working directory.
+Call `list_notion_integrations`. If it returns integrations, Notion is available.
+If none exist, skip this step — Notion is optional.
 
-**If config exists:** Load the `/signalpilot-dbt:notion-context` skill and run
-it. The skill searches configured Notion pages (meeting notes, product specs,
-data dictionaries) for context relevant to the current task.
+**If Notion is available:** Load the `/signalpilot-dbt:notion-context` skill and
+run it. The skill will use the integration discovered here.
 
 After gathering context:
-1. Write the NOTION CONTEXT block to `notion_context.md` in the working
-   directory (the notion-verify subagent reads this after the build).
+1. The skill writes `notion_context.md` in the working directory (the
+   notion-verify subagent reads this after the build).
 2. Keep the context in working memory — reference it when making decisions
    about grain, joins, filters, and column logic in later steps.
 3. If Notion context conflicts with YML, prefer YML for column names but prefer
    Notion for business logic (grain, filter rules, metric definitions).
 
-**If config does not exist:** Skip this step — Notion is optional. Proceed to
-Step 1. If the user asks about Notion context later, point them to
-`/signalpilot-dbt:notion-setup`.
+**If Notion is not configured:** Skip this step. Proceed to Step 1.
 
 ### Step 1 — Map the project
 Run the project scan tool above with the dbt project directory, then call
