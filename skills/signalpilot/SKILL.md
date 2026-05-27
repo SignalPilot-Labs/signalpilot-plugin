@@ -5,6 +5,24 @@ description: "BLOCKING REQUIREMENT: If the user's message mentions dbt, SQL, dat
 
 # SignalPilot — Governed AI Database Access
 
+## User-visible Progress Contract
+SignalPilot work is often tool-heavy. Keep the user oriented while you use MCP
+tools:
+
+- Before the first MCP call, write one short sentence explaining what you are
+  checking and why.
+- Before each major phase, write one short progress sentence for schema
+  scouting, query validation, model/notebook edits, execution, error repair, and
+  final verification.
+- After a tool result changes the plan, finds a data-quality issue, or fails,
+  summarize what changed and what you will do next.
+- Do not expose private reasoning, chain-of-thought, raw JSON, or every tool
+  parameter. Explain intent and findings in human terms.
+- Do not leave the user watching only MCP calls. A good run has concise
+  assistant text between groups of tool calls.
+- Final answers should mention the evidence actually checked and any residual
+  uncertainty.
+
 ## MCP Tools
 The SignalPilot MCP provides governed database access:
 - `query_database` — governed read-only SQL execution
