@@ -6,7 +6,7 @@ type: skill
 
 # SQLite SQL Skill
 
-## 1. String Functions — substr() and instr()
+## 1. String Functions - substr() and instr()
 
 SQLite has no `POSITION()` or `SPLIT_PART()`. Use `substr()` and `instr()`:
 
@@ -22,7 +22,7 @@ SELECT substr(col, instr(col, '/') + 1) FROM t
 WHERE instr(col, '/') > 0;
 ```
 
-## 2. String Concatenation — Use || (not CONCAT)
+## 2. String Concatenation - Use || (not CONCAT)
 
 ```sql
 -- Concatenate two strings
@@ -33,7 +33,7 @@ SELECT COALESCE(first_name, '') || ' ' || COALESCE(last_name, '') AS full_name
 FROM employees;
 ```
 
-## 3. Case-Insensitive Matching — LIKE Only (no ILIKE)
+## 3. Case-Insensitive Matching - LIKE Only (no ILIKE)
 
 SQLite's LIKE is case-insensitive for ASCII letters by default. There is no `ILIKE`:
 
@@ -45,7 +45,7 @@ WHERE name LIKE '%widget%'
 WHERE UPPER(name) LIKE UPPER('%widget%')
 ```
 
-## 4. Date Functions — date(), datetime(), strftime()
+## 4. Date Functions - date(), datetime(), strftime()
 
 SQLite stores dates as text (ISO 8601), real, or integer. Use built-in date functions:
 
@@ -72,7 +72,7 @@ SELECT CAST(julianday(end_date) - julianday(start_date) AS INTEGER) AS days_diff
 FROM t;
 ```
 
-## 5. Type Coercion — CAST() Only (no :: syntax)
+## 5. Type Coercion - CAST() Only (no :: syntax)
 
 SQLite does not support the `::` cast syntax. Use `CAST()`:
 
@@ -87,7 +87,7 @@ SELECT CAST(score AS REAL) FROM results;
 SELECT CAST(id AS TEXT) FROM records;
 ```
 
-## 6. No FULL OUTER JOIN — Simulate with UNION
+## 6. No FULL OUTER JOIN - Simulate with UNION
 
 SQLite does not support FULL OUTER JOIN. Simulate it:
 
@@ -103,7 +103,7 @@ LEFT JOIN table_a a ON b.id = a.id
 WHERE a.id IS NULL;
 ```
 
-## 7. String Aggregation — GROUP_CONCAT
+## 7. String Aggregation - GROUP_CONCAT
 
 ```sql
 -- Comma-separated list of values per group
@@ -123,7 +123,7 @@ FROM employees
 GROUP BY department;
 ```
 
-## 8. Runtime Type Checking — typeof()
+## 8. Runtime Type Checking - typeof()
 
 ```sql
 -- Returns 'integer', 'real', 'text', 'blob', or 'null'
@@ -133,7 +133,7 @@ SELECT typeof(col) FROM t;
 SELECT * FROM t WHERE typeof(col) = 'integer';
 ```
 
-## 9. NULL Handling — COALESCE, IFNULL, NULLIF
+## 9. NULL Handling - COALESCE, IFNULL, NULLIF
 
 ```sql
 -- COALESCE: first non-NULL value
@@ -146,7 +146,7 @@ SELECT IFNULL(col, 0) FROM t;
 SELECT NULLIF(col, 0) FROM t;   -- returns NULL when col = 0
 ```
 
-## 10. Formatted Output — printf()
+## 10. Formatted Output - printf()
 
 ```sql
 -- Zero-padded integer
@@ -161,18 +161,18 @@ SELECT printf('%s-%s', category, subcategory) FROM t;
 
 ## 11. Common Anti-Patterns to Avoid
 
-- No `BOOLEAN` type — use `0` and `1` (integers)
-- No `ALTER COLUMN` — SQLite only supports `ADD COLUMN` in `ALTER TABLE`
+- No `BOOLEAN` type - use `0` and `1` (integers)
+- No `ALTER COLUMN` - SQLite only supports `ADD COLUMN` in `ALTER TABLE`
 - Prefer `WITHOUT ROWID` only for tables with non-integer primary keys
-- Do NOT use `AUTOINCREMENT` unless you need gap-free IDs — plain `INTEGER PRIMARY KEY` gives auto-increment behavior and is faster
-- `LIKE` pattern uses `%` (any chars) and `_` (one char) — no regex by default
+- Do NOT use `AUTOINCREMENT` unless you need gap-free IDs - plain `INTEGER PRIMARY KEY` gives auto-increment behavior and is faster
+- `LIKE` pattern uses `%` (any chars) and `_` (one char) - no regex by default
 - `IN (SELECT ...)` is generally faster than correlated subqueries in SQLite
-- Do NOT use `= NULL` — use `IS NULL`
-- `||` propagates NULL — wrap with `COALESCE` when concatenating nullable columns
+- Do NOT use `= NULL` - use `IS NULL`
+- `||` propagates NULL - wrap with `COALESCE` when concatenating nullable columns
 
 ## 12. Benchmark Patterns
 
-- **Window functions**: SQLite supports ROW_NUMBER, RANK, DENSE_RANK, NTILE, LAG, LEAD since 3.25. No QUALIFY — use subquery wrapping.
-- **HAVING without GROUP BY**: Not valid in SQLite — always pair HAVING with GROUP BY.
-- **Recursive CTEs**: `WITH RECURSIVE` works in SQLite — useful for hierarchical data (org charts, category trees).
-- **No LIMIT in subqueries with IN**: `WHERE col IN (SELECT ... LIMIT N)` is not supported — use a CTE instead.
+- **Window functions**: SQLite supports ROW_NUMBER, RANK, DENSE_RANK, NTILE, LAG, LEAD since 3.25. No QUALIFY - use subquery wrapping.
+- **HAVING without GROUP BY**: Not valid in SQLite - always pair HAVING with GROUP BY.
+- **Recursive CTEs**: `WITH RECURSIVE` works in SQLite - useful for hierarchical data (org charts, category trees).
+- **No LIMIT in subqueries with IN**: `WHERE col IN (SELECT ... LIMIT N)` is not supported - use a CTE instead.

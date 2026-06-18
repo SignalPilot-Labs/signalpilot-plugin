@@ -6,23 +6,23 @@ type: skill
 
 # SQL Workflow Skill
 
-## 1. Schema Exploration — Do This First
+## 1. Schema Exploration - Do This First
 
 Before writing any SQL, understand the data:
 
 0. **Read local schema files first** (if schema/ directory exists in workdir):
-   - `schema/DDL.csv` — all CREATE TABLE statements (if it exists)
-   - `schema/{table_name}.json` — column names, types, descriptions, sample values
+ - `schema/DDL.csv` - all CREATE TABLE statements (if it exists)
+ - `schema/{table_name}.json` - column names, types, descriptions, sample values
    Reading these files costs zero tool calls and gives you table structure + sample data.
    Only call MCP tools for information not in the local files (e.g., row counts, live data exploration).
-1. Call `list_tables` to get all schemas and tables — only if no local schema files exist or you need row counts.
+1. Call `list_tables` to get all schemas and tables - only if no local schema files exist or you need row counts.
 2. Call `describe_table` on the tables that seem relevant to the question (only if JSON files lack detail)
 3. Call `explore_column` on categorical columns to see distinct values (for filtering/grouping)
 4. Call `find_join_path` if you need to join tables and the relationship is unclear
 
 Stop exploring after 3-5 tool calls. Write SQL based on what you've found.
 
-## 2. Output Shape Inference — Before Writing SQL
+## 2. Output Shape Inference - Before Writing SQL
 
 Read the task question carefully for cardinality clues:
 
@@ -42,12 +42,12 @@ Critical checks:
 - If the question says "how many", verify the CSV has exactly 1 row with a COUNT value
 - If "top N" appears in the question, verify the CSV has at most N rows
 
-## 3. Iterative Query Building — Build Bottom-Up
+## 3. Iterative Query Building - Build Bottom-Up
 
 Do NOT write a 50-line query and run it all at once:
 
 1. Write the innermost subquery or first CTE first
-2. Run it standalone with `query_database` — verify row count and sample values
+2. Run it standalone with `query_database` - verify row count and sample values
 3. Add the next CTE, verify again
 4. Continue until the full query is built
 
@@ -82,11 +82,11 @@ After executing, run these checks IN ORDER before saving:
 
 1. **Row count sanity**: Does 0 rows make sense? Does 1M rows make sense for a "top 10" question?
 2. **Column count**: Does the result have the right number of columns for the question?
-3. **NULL audit**: For each key column — unexpected NULLs indicate wrong JOINs:
+3. **NULL audit**: For each key column - unexpected NULLs indicate wrong JOINs:
    ```sql
    SELECT COUNT(*) - COUNT(col) AS nulls FROM (your_query) t
    ```
-4. **Sample inspection**: Look at 5 rows — are values in expected ranges? Do string columns have meaningful values (not join keys)?
+4. **Sample inspection**: Look at 5 rows - are values in expected ranges? Do string columns have meaningful values (not join keys)?
 5. **Fan-out check**: If JOINing, compare `COUNT(*)` vs `COUNT(DISTINCT primary_key)`:
    ```sql
    SELECT COUNT(*) AS total_rows, COUNT(DISTINCT <pk>) AS unique_keys FROM (your_query) t;
@@ -98,7 +98,7 @@ After executing, run these checks IN ORDER before saving:
 
 - **Syntax error**: Use `validate_sql` before `query_database` to catch errors without burning a query turn
 - **Wrong results**: Do NOT just re-run the same query. Diagnose: which JOIN is wrong? Which filter is too aggressive?
-- **Zero rows**: Binary-search your WHERE conditions — remove them one at a time to find the culprit:
+- **Zero rows**: Binary-search your WHERE conditions - remove them one at a time to find the culprit:
   ```sql
   SELECT COUNT(*) FROM table WHERE cond_1;             -- still same? keep it
   SELECT COUNT(*) FROM table WHERE cond_1 AND cond_2;  -- drops? cond_2 is culprit
@@ -119,26 +119,26 @@ Once you have the correct result:
    ```
    Write tool: path="result.csv", content="col1,col2,...\nval1,val2,..."
    ```
-   - Always include a header row with column names
-   - Use comma as delimiter
-   - Quote string values that contain commas or newlines
+ - Always include a header row with column names
+ - Use comma as delimiter
+ - Quote string values that contain commas or newlines
 
 ## 7. Turn Budget Management
 
 - **First 3 turns**: Schema exploration only (`schema_overview`, `describe_table` on 2-3 tables, `explore_column` on key categorical columns). STOP exploring.
-- **Turns 4 through (N-3)**: Write query iteratively — execute and verify each step.
-- **Last 3 turns**: Finalize `result.sql` and `result.csv`. If you have a working query, SAVE IT NOW — do not keep iterating.
+- **Turns 4 through (N-3)**: Write query iteratively - execute and verify each step.
+- **Last 3 turns**: Finalize `result.sql` and `result.csv`. If you have a working query, SAVE IT NOW - do not keep iterating.
 
-If your query works and passes all verification checks, SAVE IMMEDIATELY — do not continue exploring "just in case".
+If your query works and passes all verification checks, SAVE IMMEDIATELY - do not continue exploring "just in case".
 
 ## 8. Common Benchmark Traps
 
-- **Rounding**: Do NOT round unless the question explicitly asks for rounded values. The evaluator uses tolerance-based comparison — full precision is always safer.
+- **Rounding**: Do NOT round unless the question explicitly asks for rounded values. The evaluator uses tolerance-based comparison - full precision is always safer.
 - **Column naming**: Match the question's phrasing exactly. If the question says "total revenue", name the column `total_revenue`, not `sum_revenue` or `revenue_total`.
 - **CSV format**: No trailing newline, no BOM, comma delimiter, double-quote strings containing commas.
 - **Empty result**: If the correct answer is 0 or empty, write a CSV with just the header row (or header + "0").
 - **Date/time format in CSV**: Use ISO 8601 (`YYYY-MM-DD`) unless the question specifies otherwise.
-- **String case in CSV**: Preserve the case from the database — do not uppercase/lowercase unless the question explicitly asks.
+- **String case in CSV**: Preserve the case from the database - do not uppercase/lowercase unless the question explicitly asks.
 - **Fan-out from JOINs**: Always check `COUNT(*) vs COUNT(DISTINCT key)` after every JOIN
 - **Wrong NULL handling**: Use `IS NULL` / `IS NOT NULL`, not `= NULL`
 - **Date format mismatch**: Check the actual format stored in the column with `explore_column`
