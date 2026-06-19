@@ -6,7 +6,7 @@ type: skill
 
 # Snowflake SQL Skill
 
-## 1. Window Function Filtering — Use QUALIFY
+## 1. Window Function Filtering - Use QUALIFY
 
 Instead of wrapping in a subquery, use QUALIFY:
 
@@ -22,7 +22,7 @@ FROM sales_summary
 QUALIFY DENSE_RANK() OVER (ORDER BY total_sales DESC) <= 5;
 ```
 
-## 2. Case-Insensitive Matching — Use ILIKE
+## 2. Case-Insensitive Matching - Use ILIKE
 
 ```sql
 -- Case-insensitive LIKE
@@ -34,7 +34,7 @@ WHERE UPPER(status) = 'ACTIVE'
 WHERE status ILIKE 'active'
 ```
 
-## 3. Arrays and Semi-Structured Data — LATERAL FLATTEN
+## 3. Arrays and Semi-Structured Data - LATERAL FLATTEN
 
 ```sql
 -- Explode an ARRAY column
@@ -104,14 +104,14 @@ SELECT * FROM my_table AT (TIMESTAMP => '2024-01-01'::TIMESTAMP);
 
 ## 8. Common Anti-Patterns to Avoid
 
-- Do NOT use `= NULL` — use `IS NULL`
-- Do NOT use `<>` for NULL comparison — use `IS NOT NULL`
+- Do NOT use `= NULL` - use `IS NULL`
+- Do NOT use `<>` for NULL comparison - use `IS NOT NULL`
 - Prefer `QUALIFY` over subquery wrapping for window filters
 - When accessing VARIANT fields, always cast: `col:field::STRING`
 
 ## 9. Benchmark Patterns
 
-- **Numeric precision**: Snowflake returns DECIMAL/NUMBER with configurable precision. Do NOT cast to FLOAT unless needed — precision loss fails exact-match evaluation.
+- **Numeric precision**: Snowflake returns DECIMAL/NUMBER with configurable precision. Do NOT cast to FLOAT unless needed - precision loss fails exact-match evaluation.
 - **IDENTIFIER case**: Snowflake upper-cases identifiers by default. Use double-quotes `"lower_case_col"` when column names are lowercase in source. Always check with `describe_table`.
 - **LISTAGG**: Use `LISTAGG(col, ',') WITHIN GROUP (ORDER BY col)` for string aggregation (not GROUP_CONCAT).
 - **TRY_CAST / TRY_TO_NUMBER**: Use for safe type conversion that returns NULL instead of error.

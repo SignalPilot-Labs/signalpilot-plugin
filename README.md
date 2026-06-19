@@ -41,20 +41,29 @@ Step 1 gives you all 30+ MCP tools. Step 2 adds skills and agents on top.
 
 | Skill | Description |
 |-------|-------------|
-| `/signalpilot-dbt:signalpilot` | Main entry point — schema discovery, governed queries |
+| `/signalpilot-dbt:signalpilot` | Main entry point — schema discovery, governed queries, skill router |
 | `/signalpilot-dbt:sql-workflow` | Structured SQL query building with verification |
-| `/signalpilot-dbt:dbt-workflow` | Full dbt project workflow (scan, map, validate, write, verify) |
+| `/signalpilot-dbt:dbt-workflow` | Full 8-step dbt project workflow (scan, load skills, validate, macros, research, spec, write, verify) |
 | `/signalpilot-dbt:dbt-write` | dbt model writing with column naming and type rules |
 | `/signalpilot-dbt:dbt-debugging` | Fix dbt run/parse failures |
 | `/signalpilot-dbt:dbt-date-spines` | Fix current_date hazards in date spine models |
+| `/signalpilot-dbt:dbt-testing` | Unit tests and data tests |
+| `/signalpilot-dbt:dbt-snapshots` | Snapshots / SCD2 |
+| `/signalpilot-dbt:dbt-versioning` | Model versioning |
+| `/signalpilot-dbt:dbt-knowledgebase` | Use the knowledge base within dbt work |
+| `/signalpilot-dbt:knowledge-base` | Propose and search reusable knowledge entries |
+| `/signalpilot-dbt:write-report` | Write a structured analysis report |
+| `/signalpilot-dbt:xata` | Xata Postgres branches — connect, diff two branches, and flag schema changes that break dbt before merge |
+| Domain skills | `domain-ecommerce`, `domain-financial`, `domain-healthcare`, `domain-hr`, `domain-marketing`, `domain-media`, `domain-product` |
 | DB-specific | `bigquery-sql`, `snowflake-sql`, `duckdb-sql`, `sqlite-sql` |
-| `/signalpilot-dbt:notion-context` | Gather business context from Notion for dbt builds |
+| `/signalpilot-dbt:notion-context` | Gather business context from Notion (separate skill, load on request) |
 
 ### Agents (from Step 2)
 
 | Agent | Description |
 |-------|-------------|
 | `verifier` | Post-build verification of dbt models (7-check protocol) |
+| `value-verifier` | Aggregate value cross-validation of built models |
 | `notion-verify` | Post-build traceability report — writes to Notion documenting how context influenced the build |
 
 ## How It Works

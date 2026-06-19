@@ -6,7 +6,7 @@ type: skill
 
 # BigQuery SQL Skill
 
-## 1. Table References — Always Backtick-Quote
+## 1. Table References - Always Backtick-Quote
 
 ```sql
 -- Full table reference
@@ -16,7 +16,7 @@ SELECT * FROM `project.dataset.table`;
 SELECT * FROM `dataset.table`;
 ```
 
-## 2. Array Expansion — Use UNNEST
+## 2. Array Expansion - Use UNNEST
 
 ```sql
 -- Explode an array column to rows
@@ -121,25 +121,27 @@ FORMAT('%s-%d', str_col, int_col)        -- printf-style formatting
 
 ## 10. Common Anti-Patterns to Avoid
 
-- Do NOT use `= NULL` — use `IS NULL`
-- Do NOT forget to filter partitioned tables — costs money
-- Do NOT use `COUNT(DISTINCT ...)` on huge tables — use `APPROX_COUNT_DISTINCT`
+- Do NOT use `= NULL` - use `IS NULL`
+- Do NOT forget to filter partitioned tables - costs money
+- Do NOT use `COUNT(DISTINCT ...)` on huge tables - use `APPROX_COUNT_DISTINCT`
 - Always backtick-quote table names with dots in them
 
 ## 11. Benchmark Patterns
 
 - **STRING_AGG**: Use `STRING_AGG(col, ',' ORDER BY col)` for string aggregation (not GROUP_CONCAT).
 - **SAFE_DIVIDE / SAFE_CAST**: Use to avoid division-by-zero errors and cast failures.
-- **IF / IIF**: BigQuery supports `IF(condition, true_val, false_val)` — often cleaner than CASE WHEN for simple conditions.
+- **IF / IIF**: BigQuery supports `IF(condition, true_val, false_val)` - often cleaner than CASE WHEN for simple conditions.
 - **GENERATE_DATE_ARRAY / GENERATE_TIMESTAMP_ARRAY**: For date spine generation.
 - **Numeric precision**: BigQuery's FLOAT64 can lose precision. Use NUMERIC type or ROUND() only when the question asks for it.
-- **INFORMATION_SCHEMA**: `SELECT * FROM dataset.INFORMATION_SCHEMA.COLUMNS` for metadata queries — useful when schema_overview is insufficient.
+- **INFORMATION_SCHEMA**: `SELECT * FROM dataset.INFORMATION_SCHEMA.COLUMNS` for metadata queries - useful when schema_overview is insufficient.
 
-## 12. Spider2 BigQuery Patterns
+## 12. Public dataset and large-table patterns
 
-- **Default project**: `spider2-public-data`. Table references: `spider2-public-data.{dataset}.{table}`
-- **StackOverflow tags**: Stored as pipe-delimited strings in `tags` column (e.g., `|python|python-2.7|`).
-  To filter for Python 2 specific questions (excluding Python 3):
+- **Cross-project references**: Public datasets live under their own project. Fully
+  qualify table references as `` `project.dataset.table` `` (backtick-quoted).
+- **Pipe-delimited string columns**: Some sources store lists as delimited strings
+  (e.g., `|python|python-2.7|`). Match a value while excluding a near-match with two
+  REGEXP_CONTAINS predicates:
   ```sql
   WHERE REGEXP_CONTAINS(tags, r'python-2') AND NOT REGEXP_CONTAINS(tags, r'python-3')
   ```

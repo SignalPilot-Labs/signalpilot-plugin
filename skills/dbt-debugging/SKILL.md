@@ -11,7 +11,7 @@ type: skill
 dbt fails with "Duplicate patch" when the same model appears in multiple YML files.
 Fix in ONE pass:
 1. Glob `models/**/*.yml` to find all YML files
-2. Keep the entry with the full contract (descriptions, refs, columns) — usually in a subdirectory YML
+2. Keep the entry with the full contract (descriptions, refs, columns) - usually in a subdirectory YML
 3. Remove the duplicate from `schema.yml` (which typically only has tests)
 
 ## 2. Ref Not Found
@@ -34,7 +34,7 @@ Fix: add `schema: main` to the source definition in YML instead.
 ## 4. current_date Fix
 
 If `dbt_project_map` warns about `current_date` usage:
-1. Call `get_date_boundaries` — find the column marked "USE THIS"
+1. Call `get_date_boundaries` - find the column marked "USE THIS"
 2. Replace `current_date`/`now()` with `(SELECT MAX(<col>) FROM {{ ref('<table>') }})`
 3. For package models: create `models/<name>.sql`, paste full SQL, replace current_date
 
@@ -51,12 +51,22 @@ If `dbt_project_map` warns about ROW_NUMBER/RANK:
 |-------|-----|
 | `invalid date field format` | `STRPTIME(col, '%d/%m/%Y')::DATE` |
 | `Table does not exist` | Check actual names with `describe_table` |
-| `column not found` | Check exact names — case matters in DuckDB |
+| `column not found` | Check exact names - case matters in DuckDB |
 | `Cannot mix TIMESTAMP and INTEGER` | Cast both args to same type |
 | `No function matches DOUBLE / VARCHAR` | Add explicit `CAST()` |
 | `fivetran_utils is undefined` | Run `dbt deps` (only if `packages.yml` exists) |
 
-## 7. Zero-Row Model
+## 7. Package Model Build Failures
+
+If `dbt run` fails on a model inside `dbt_packages/` with a type error
+(e.g., `date_trunc` on an INTEGER, `No function matches`), you MUST fix
+the package SQL file directly. The sandbox has no internet, so you cannot
+reinstall the package. Read the failing SQL, find the type mismatch, and
+add the appropriate CAST or conversion (e.g., `to_timestamp(epoch_col)`
+for epoch integers, `CAST(col AS DATE)` for type mismatches). Broken
+upstream models block everything downstream.
+
+## 8. Zero-Row Model
 
 Binary search: comment out WHERE clauses and JOINs one at a time to find which
 condition drops all rows. Most common cause: INNER JOIN where LEFT JOIN is needed.

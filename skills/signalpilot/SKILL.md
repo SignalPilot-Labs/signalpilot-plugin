@@ -51,11 +51,15 @@ Use `ToolSearch` to discover additional tools as needed.
 Load these skills as needed for specialized work:
 
 ### dbt Projects
-- `/signalpilot-dbt:dbt-workflow` — Load FIRST for any dbt project. Full 5-step
-  workflow: scan, map, validate, write, verify.
-- `/signalpilot-dbt:dbt-write` — Load at Step 4 when writing SQL models
+- `/signalpilot-dbt:dbt-workflow` — Load FIRST for any dbt project. Full 8-step
+  workflow: scan, load skills, validate, discover macros, research, spec, write, verify.
+- `/signalpilot-dbt:dbt-write` — Load at the writing step for SQL model rules
 - `/signalpilot-dbt:dbt-debugging` — Load when dbt run/parse fails
 - `/signalpilot-dbt:dbt-date-spines` — Load to fix current_date/now() hazards
+- `/signalpilot-dbt:dbt-testing` — Load for unit tests / data tests
+- `/signalpilot-dbt:dbt-snapshots` — Load for snapshots / SCD2
+- `/signalpilot-dbt:dbt-versioning` — Load for model versioning
+- `/signalpilot-dbt:dbt-knowledgebase` — Load to use the knowledge base in dbt work
 
 ### SQL (load the one matching your database)
 - `/signalpilot-dbt:duckdb-sql` — DuckDB-specific syntax and gotchas
@@ -63,11 +67,21 @@ Load these skills as needed for specialized work:
 - `/signalpilot-dbt:bigquery-sql` — BigQuery-specific patterns
 - `/signalpilot-dbt:sqlite-sql` — SQLite-specific patterns
 
-### Notion Context
-- `/signalpilot-dbt:notion-context` — Gather business context from Notion (auto-runs in dbt workflow if a Notion integration is configured in SignalPilot)
+### Domain knowledge (load the one matching the data)
+- `/signalpilot-dbt:domain-ecommerce`, `domain-financial`, `domain-healthcare`,
+  `domain-hr`, `domain-marketing`, `domain-media`, `domain-product`
 
-### General SQL
+### Database branching
+- `/signalpilot-dbt:xata` — Xata Postgres branches: connect, diff two branches, and
+  check whether an upstream branch's schema change breaks dbt before it merges
+
+### Notion Context
+- `/signalpilot-dbt:notion-context` — Gather business context from Notion. Load this skill when the user asks for it; it is separate from the dbt workflow.
+
+### General
 - `/signalpilot-dbt:sql-workflow` — Structured query building and verification
+- `/signalpilot-dbt:knowledge-base` — Propose and search reusable knowledge entries
+- `/signalpilot-dbt:write-report` — Write a structured analysis report
 
 ## Quick Start
 
