@@ -12,6 +12,8 @@ allowed-tools: Bash(dbt *) Bash(python3 *)
 This skill orchestrates the complete dbt project workflow. Load it FIRST whenever
 working on a dbt project - it contains rules that affect how you interpret everything.
 
+In a chat, read `dbt run`, `dbt build`, and `dbt test` here as `dbt_execute` with the same `select`, and `validate_project.py` as `inspect_dbt` `parse`. Before each run or build, call `estimate_query_cost` on each model's compiled SQL.
+
 ## Tools
 
 ### scan_project.py - Project scanner (Step 1)
@@ -27,34 +29,31 @@ python3 "${CLAUDE_SKILL_DIR}/validate_project.py" "<project_directory>"
 ```
 Runs `dbt parse` and returns structured errors, warnings, and orphan patches.
 
-### analyze_project_db - DB hints (MCP tool, Step 1)
-Call `analyze_project_db(connection_name)`. Returns the database-derived hints:
-lookup joins (`_id` columns with matching dimension tables), staging-vs-raw row
-gaps, and parent-child driving-table hints. Run alongside scan_project.py in Step 1.
+### map_columns - Upstream observations
 
-### map_columns - Upstream column mapper (MCP tool, Step 7)
-Call `map_columns(connection_name, model_name, project_dir)`.
-Queries each upstream table's columns and maps them
-against the YML contract. Outputs every column as MAPPED, UNMAPPED-INCLUDE,
-or UNMAPPED-EXCLUDE with the recommended output alias (including domain prefix).
-Run this BEFORE writing each model's SQL. Include all UNMAPPED-INCLUDE columns; skip UNMAPPED-EXCLUDE columns (see dbt-write §1).
+`map_columns` accepts `upstream_tables="<physical_relation1>,<physical_relation2>"` for pre-write inspection when SQL has no lineage. Its statuses describe available columns rather than output requirements.
+
+### find_column_producers - Existing producers (MCP tool, Step 5)
+
+Call `find_column_producers(connection_name, column_names="<col1>,<col2>", project_dir)` before writing SQL. It reports every existing model that already projects each named output column, the relations it reads, and the expression - the project's producer for a value is the model that already computes it.
 
 ### verify_model_values - Aggregate cross-validator (MCP tool, Step 8)
-Call `verify_model_values(connection_name, model_name)`.
+Call `verify_model_values(connection_name, model_name)` on a DuckDB connection only. On other connections, compare the model against its sources with `query_database`.
 Queries the model output, finds the upstream fact table, picks the largest
 slice, and compares the model's metric values against both COUNT(*) and
 COUNT(DISTINCT <key>) from the raw source. Reports MATCH, MISMATCH, or
 WARNING (model uses DISTINCT when COUNT(*) is larger). Used by the
 value-verifier subagent in Step 8.
 
-## Knowledge Base Check (before Step 1)
+## Context Check (before Step 1)
 
-Before starting the workflow, call `get_knowledge` with the task description.
-If the knowledge base returns entries, read them - they provide context
-about this project's conventions, data patterns, and prior research.
+Before starting the workflow, read the project's context folder (its path
+is in the system prompt): its README.md and AGENT.md first, then only the
+files that apply to the task. They hold this project's conventions,
+metric definitions, and prior research.
 
-KB entries INFORM your work but do NOT skip any steps. Always run the
-full 8-step workflow. The KB makes you faster because you already know
+Context files INFORM your work but do NOT skip any steps. Always run the
+full 8-step workflow. The context makes you faster because you already know
 what to look for - but you still verify everything via `query_database`
 and the verification subagents.
 
@@ -75,35 +74,33 @@ Even if the task says "create model X" - if X.sql already exists in
 the scan's "EXISTING COMPLETE" list, it is already created. Verify it
 in Step 8, do not recreate it.
 
-After Step 1, create a task for EACH remaining step using the TaskCreate
-tool. Mark each task `in_progress` when you start it and `completed` when
-you finish it. If skipping Steps 4-7, mark them as `completed` with no work.
+Track each workflow step that you will run as a step in the plan file.
 
 ### Step 1 - Map the project
-Run BOTH scans IN PARALLEL — a single turn with both tool calls. They are independent
-(one reads the project files, the other queries the database), so do NOT wait for one
-before calling the other:
-1. `python3 "${CLAUDE_SKILL_DIR}/scan_project.py" "<project_directory>"` — filesystem scan.
-2. `analyze_project_db(connection_name)` — database hints (lookup joins, staging-vs-raw
-   gaps, parent-child driving tables).
+Run the filesystem scan:
+`python3 "${CLAUDE_SKILL_DIR}/scan_project.py" "<project_directory>"`. For joins between
+tables, use `find_join_path` or `get_relationships` when a model needs them.
 
-Read the ENTIRE output of BOTH. Record:
+Read the ENTIRE output. Record:
 - STUBS TO REWRITE
 - MODELS TO BUILD
 - DEPENDENCIES
 - REQUIRED COLUMNS
 - AVAILABLE MACROS (with definitions)
 
-If the task describes a runtime bug (type mismatch, wrong values, broken output), run `dbt run --select <pre_existing_model> 2>&1 | tail -50` on the affected pre-existing model - `dbt parse` passing does NOT mean the model produces correct output.
+`prebuild_state.md` is verifier evidence: the baseline of each supplied model before you change it. The plan file tracks progress. If it already exists, read it and do not overwrite it.
 
-Then create tasks for Steps 2–8:
-- "Step 2: Load supporting skills"
-- "Step 3: Validate project"
-- "Step 4: Discover macros"
-- "Step 5: Research (data exploration)"
-- "Step 6: Write technical spec"
-- "Step 7: Write and build models"
-- "Step 8: Verify and fix"
+Before the first dbt command, call `list_tables(connection_name)` when no baseline exists because a build can overwrite supplied relations.
+
+When no baseline exists, create `<project_dir>/prebuild_state.md`. For each supplied model, record `CREATE`, `REWRITE STUB`, `MODIFY`, or `VERIFY` plus the verbatim task-authorized change because the verifier must tell requested changes from scope expansion. Read its SQL/YML config and `dbt_project.yml`; record its SQL path, materialization, database, schema, and alias because verification needs the original node identity.
+
+Match each configured relation against `list_tables`. Record `ABSENT` when no relation exists. When a relation exists, call `explore_columns(connection_name, table="<qualified_relation>", include_samples=true, include_stats=true)` because types and values establish its current contract. For each column, add `COUNT(*) - COUNT(<quoted column>) AS <quoted column_name_nulls>` to one `query_database` query because NULL coverage and zero rows must be explicit.
+
+Record every static `ref()`, `source()`, and direct physical relation in `FROM` or `JOIN` within supplied models and their dependency closure because bindings are not always variable-driven. Record each original relation expression and its resolved physical relation. Record each source's database, schema, identifier, enabled value, and resolved relation. Search the same files for `var(` and `env_var(`; record each expression, its project value or declared default, every binding field that consumes it, and its resolved relation because indirect bindings can change population.
+
+Record every binding, or mark it `ABSENT`, before the first `dbt_execute` `run` or `build`.
+
+If the task describes a runtime bug (type mismatch, wrong values, broken output), run `dbt run --select <pre_existing_model> 2>&1 | tail -50` on the affected pre-existing model - `dbt parse` passing does NOT mean the model produces correct output.
 
 ### Step 2 - Load supporting skills
 Load ALL THREE skills now - they contain rules needed for writing AND
@@ -118,7 +115,7 @@ source table names in the Step 1 scan output.
  - Events/sessions/features/guides/analytics → `/signalpilot-dbt:domain-product`
  - Employees/hiring/issues/SCD/tickets → `/signalpilot-dbt:domain-hr`
  - Orders/products/discounts/returns/charges/spend → `/signalpilot-dbt:domain-ecommerce`
- - Movies/sports/credits/rankings/content → `/signalpilot-dbt:domain-media`
+ - Movies/sports/credits/content → `/signalpilot-dbt:domain-media`
  - Clinical/patients/encounters/diagnoses/costs → `/signalpilot-dbt:domain-healthcare`
 
 Also load these conditional skills when the task or project requires them:
@@ -145,7 +142,7 @@ PRE-EXISTING models, rebuild those models NOW:
 `dbt run --select <flagged_model1> <flagged_model2>`
 These models contain stale data from a prior run. Without rebuilding, all
 downstream models inherit wrong row counts. Do NOT skip this even if the
-knowledge base has entries - KB cannot fix stale materialized data.
+context folder covers the model - it cannot fix stale materialized data.
 
 Do NOT use `+`. If no hazards flagged, skip the rebuild.
 
@@ -156,13 +153,15 @@ referenced by any existing complete model:
 2. Identify what column it produces. `extract_hour(created_at)` produces
    `hour_created_at`. `normalize_timestamp(created_at)` produces
    `normalized_created_at`.
-3. Record which models MUST use it - any model whose source table has the
-   macro's input column.
-
-These macro-derived columns are ADDITIONAL columns beyond the YML list.
-Include them in your SQL in Step 7.
+Record a macro output only when its definition returns an output expression and every required input exists in this model's established upstreams because helper macros do not define columns by themselves.
 
 ### Step 5 - Research (data exploration)
+Apply source-selection defaults to `CREATE` and `REWRITE STUB` work. For `MODIFY` and `VERIFY` work, preserve every binding recorded in `prebuild_state.md` unless the verbatim task authorizes its change because research defaults do not redefine an existing model.
+
+Call `describe_table` before you filter, group, or join on a column you have
+not seen in a result. On SQL Server, INFORMATION_SCHEMA column names are
+upper case.
+
 For EACH model that needs SQL, gather the facts to write it correctly:
 
 1. **Driving table** - the Step 1 scan's AGGREGATION DRIVING TABLE hint flags a
@@ -181,6 +180,7 @@ For EACH model that needs SQL, gather the facts to write it correctly:
    `SELECT COUNT(DISTINCT <key>)` on each upstream to confirm grain.
 3. **Contract** - read the model's YML entry for column names, tests, and
    descriptions.
+Call `map_columns` with `upstream_tables="<physical_relation1>,<physical_relation2>"` before writing SQL because source projections must be visible before materialization. Qualify an `AMBIGUOUS` relation or correct a `NOT FOUND` name and rerun the call because unresolved upstreams cannot support construction. When `map_columns` reports `POSITIONAL ALIGNMENT` or `POSITIONAL DECORATION CANDIDATES`, those are hints about which source column each YML name maps to. Confirm each pair against YML descriptions, sibling SQL, and sample values, and record the confirmed mapping in your Step 5 notes for the Step 6 spec. If one source table covers every YML column, the scan flags no LOOKUP JOINS, and no AGGREGATION DRIVING TABLE hint applies, build from that single table with no join - a second table would only add or drop rows.
 4. **Sibling patterns** - read sibling SQL and the YML in `dbt_packages/`
    for JOIN types, CASE WHEN predicates, and categorical vocabulary. The test
    data is often too sparse to reveal every value; the package YML descriptions
@@ -195,18 +195,51 @@ is the true spine. Run `SELECT COUNT(DISTINCT <key>)` on both the spine and the
 aggregation source. If counts differ, use the spine.
 
 ### Step 6 - Write technical spec
-Load the knowledge-base skill: `/signalpilot-dbt:knowledge-base`
+Write `<project_dir>/technical_spec.md`: the decisions from your Step 5
+research. It is not SQL, not raw query output, and not domain rules.
 
-This skill writes `<project_dir>/technical_spec.md` - a structured plan
-that distills your Step 5 research into decisions about sources, joins,
-filters, expressions, and grain for every model.
+If the file already exists (a retry), read it. Keep `prebuild_state.md`.
+Check each decision that the failure touches against the task, the YML, the
+source relations, and the verifier findings. Fix unsupported decisions before
+you change SQL. A relation that this attempt created is not original evidence.
 
-If `technical_spec.md` already exists (retry), the skill reads it and skips
-re-research. Follow the skill's instructions - it defines the spec format,
-quality rules, and update protocol.
+Put these sections in the spec:
+
+1. **Build order** at the top: each model in dependency order, with its layer
+   (staging, intermediate, mart) and what it depends on.
+2. **One plan per model**, with all seven fields:
+   - **Source**: `ref('model')` or the raw table. When an upstream model already
+     computes a value, use `ref()` of that model. Do not recompute it.
+   - **Driving table**: the table in FROM, with its row count from Step 1 or a
+     `query_database` COUNT.
+   - **Joins**: each join type and its exact keys.
+   - **Key expressions**: each computed column. When a sibling or upstream
+     model defines it, copy it exactly and name that model and column. The
+     Source field must list `ref()` of that model.
+   - **Filters**: each WHERE/HAVING, with its reason (a skill rule, the YML, or a
+     query result), or "none".
+   - **Expected grain**: what one row means.
+   - **Expected rows**: from query cardinalities. Do not guess.
+3. **Decisions**: one line each: what you chose, why, and the evidence.
+
+Example model plan:
+
+```
+## Model: fct_revenue
+- Source: ref('int_order_items') - already computes item_total
+- Driving table: int_order_items (600K rows)
+- Joins: dim_customers ON customer_id = customer_id (LEFT JOIN)
+- Key expressions: total_revenue = SUM(item_total) [int_order_items.item_total]
+- Filters: status != 'returned' (domain-ecommerce: returns are not revenue)
+- Expected grain: one row per customer
+- Expected rows: ~75K (query: 75K distinct customers excluding returns)
+```
+
+When a verifier reports FAIL, update the spec first: edit the field that
+caused the failure, add a decision line, then rewrite the SQL from the spec.
 
 STOP this step when the spec file is written and every model has all seven
-required fields (see knowledge-base skill Section 3).
+fields.
 
 ### Step 7 - Write and Build ALL Models
 Read `<project_dir>/technical_spec.md` from Step 6. Write SQL for each
@@ -218,16 +251,23 @@ For each model in dependency order:
    finalizing this model, re-check the Step 1 scan's LOOKUP JOINS section and the
    sibling's date/timestamp handling for this model's columns - these two are the
    easiest to skip.
-3. Add macro-derived columns from Step 4.
-4. Read the YML description for date boundaries. If it says "to the
+3. Read the YML description for date boundaries. If it says "to the
    current date" or "to today", add `WHERE date_col <= current_date`.
-5. Read the YML description for transformation rules. If it states
+4. Read the YML description for transformation rules. If it states
    explicit logic ("categorized as X if Y"), implement that logic.
-6. Write the SQL file.
+5. Write the SQL file.
 
 Do NOT rewrite pre-existing SQL files from scratch. For bug-fix tasks, EDIT the existing SQL minimally - change only the broken expression (e.g., add a CAST, fix an aggregation function). Keep all existing JOINs, CTEs, column aliases, and WHERE clauses intact. Rewriting from scratch drops logic the original author put there (lookup JOINs, filters, aliases) that you may not notice is missing.
 
-After ALL SQL files are written, build ONLY the models you wrote:
+After ALL SQL files are written, run `python3 "${CLAUDE_SKILL_DIR}/inspect_model_state.py" "<project_directory>" <model1> <model2>` because inline overrides and incremental guards can change first-build output.
+Resolve each `FAIL` before building because it marks an unusable model state.
+Review each `REVIEW` or `WARN` against the task, YML, and `dbt_project.yml` because those files establish materialization intent.
+
+Preserve every `ref()`, `source()`, direct-relation expression, source identifier, schema, database, alias, enabled flag, and resolved relation recorded in `prebuild_state.md` unless the verbatim task requests that binding change because a successful empty input is valid project state. Do not redirect a configured source merely to produce rows.
+
+**Estimate every model.** For each model you wrote or changed, built or not, before any query runs its SQL: compile it (`dbt_execute` `compile`) and call `estimate_query_cost` on the compiled SELECT. If it does not fit the 150-second limit, optimize it and estimate again; if you cannot, call `request_query_time_limit`. Record `<model> | <p90> | <fits, optimized, or time requested>` under `## Estimates` in the spec (`technical_spec.md`; in a chat, `analytics-steps.md`).
+
+Build ONLY the models you wrote:
 `dbt run --select <model1> <model2> <model3>` (NO `+` prefix).
 
 The `+` prefix rebuilds upstream models you did NOT write, destroying
@@ -237,43 +277,24 @@ is not yet materialized, THEN add `+` for that specific model only.
 
 If `dbt run` fails on ANY model - including package models in
 `dbt_packages/` - load the dbt-debugging skill and fix the error.
-Broken upstream models block evaluation of all downstream models.
+A failed upstream build blocks downstream materialization; a successful zero-row relation does not.
 
 Do NOT run a bare `dbt run` - it rebuilds ALL models including pre-existing ones.
 
 ### Step 8 - Verify and Fix
-1. Run `query_database` with `SELECT 1`. If it errors, wait and retry.
-2. Dispatch BOTH verifiers in parallel using the Agent tool:
- - `subagent_type="verifier"` - structure checks
- - `subagent_type="value-verifier"` - value checks
-   Both are READ-ONLY. They return reports. They fix nothing.
-   Pass: project directory, connection name, model names, and the
-   domain skill name from Step 2 (e.g. "signalpilot-dbt:domain-ecommerce").
-   Also pass the path to `technical_spec.md` so verifiers can reference it.
-   Do NOT include column definitions, SQL logic, or your interpretation
-   of what the columns mean. The verifiers must discover this themselves.
-3. Read BOTH reports. Only act on checks the verifiers marked FAIL.
-   If a check is PASS or INFO, accept it - do NOT override the verifier
-   or "fix" something it approved. If the model's row count differs from
-   your technical spec but the verifier says CHECK 3 PASS, update your
-   spec to match reality - the verifier has already diagnosed whether
-   the row count is correct.
+Start only when each model you wrote or changed has a line under `## Estimates`. In a chat, verify before you commit, push, file a suggestion, or open a PR. For a data question, answer first, then verify.
 
-   For each FAIL:
- - Structure CHECK 1 FAIL (missing table): run `dbt run --select +<model>`.
- - Structure CHECK 2 FAIL (missing columns): a column that appears ONLY in the
-     YML - with no source counterpart, no sibling that outputs it, and not named by
-     the task - is aspirational; do NOT add it (it makes the output one column too
-     wide and fails the equality test). Otherwise - it is a real source column the
-     model should carry - add it and rebuild.
- - Structure CHECK 3 FAIL (row count): investigate SQL logic,
-     pre-aggregate or add GROUP BY, rebuild.
- - Value CHECK 2 FAIL (aggregate mismatch): apply the verifier's
-     prescribed fix exactly as stated. Do NOT rationalize the mismatch
-     as intentional. The verifier's numbers are measured from source data.
-   For ANY fix, update `technical_spec.md` FIRST (see knowledge-base skill
-   Section 6), then rewrite the SQL from the updated spec. Rebuild.
-4. STOP when both reports show all checks PASS. Once verification passes, do NOT modify any model files - the task is complete. No further investigation, no "what if" queries, no source table changes. The verifiers are the final authority.
+Run `query_database` with `SELECT 1` because verification requires a live connection. Retry the call after a connection error.
+
+Dispatch `verifier` and `value-verifier` in parallel because structure and values require independent evidence. Pass the verbatim task, project directory, connection name, supplied model names, `prebuild_state.md`, and `technical_spec.md`. Do not add expected values, column definitions, SQL interpretations, or preferred fixes beyond the verbatim task and project artifacts because the verifiers must derive their own evidence.
+
+Reject a report whose summary disagrees with its check statuses because contradictory reports cannot authorize changes. Reject a report missing a required per-model status, FAIL recommendation, or NEEDS request because incomplete reports cannot authorize changes. Redispatch a verifier whose report contains `NEEDS` with the requested project or database evidence because incomplete diagnosis cannot authorize changes. Do not edit files while any `NEEDS` remains.
+
+Reproduce each FAIL's cited evidence before changing code because verifier inferences are not implementation authority. Redispatch the responsible verifier with the contrary evidence when the cited result does not reproduce. Re-enter Step 6 when the failure reproduces because `technical_spec.md` must record the supported correction before implementation. Acquire evidence named by a FAIL recommendation in Step 6 before recording the correction because Step 7 cannot choose an unsupported value.
+
+Apply the smallest evidence-backed change in Step 7 because unrelated edits broaden regression risk. Rebuild each changed model with Step 7's existing command. Redispatch both verifiers for every changed model because SQL changes invalidate both reports.
+
+STOP when every applicable check is PASS and each inapplicable check is N/A. Do not modify project files after this condition because verification is complete.
 
 ---
 
@@ -282,9 +303,6 @@ Do NOT run a bare `dbt run` - it rebuilds ALL models including pre-existing ones
 Extract from `description:` field:
 - **ENTITY**: "for each customer/driver/order" → one row per qualifying entity
 - **QUALIFIER**: "due to returned items" / "with at least one order" → filter or INNER JOIN
-- **RANK CONSTRAINT**: "top N" / "ranks the top N" → exactly N output rows. Filter
-  with `ROW_NUMBER() ... <= N` using a deterministic tiebreaker (add primary key to
-  ORDER BY). Do NOT use DENSE_RANK for filtering - it can return more than N rows.
 - **TEMPORAL SCOPE**: "rolling window", "MoM", "WoW", or "month-over-month" in the
   description → ONE output date (latest), not all historical dates. Filter with
   `WHERE date_col = (SELECT MAX(date_col) FROM source)`.
@@ -324,25 +342,12 @@ period-over-period values with LAG/LEAD, your new model MUST use
 CAST(NULL AS DOUBLE). The sibling is incremental and accumulates history
 over multiple runs - your table-materialized model has no prior state.
 
-**Debugging incremental models with missing rows**: inspect the boundary predicate first. If the model uses `WHERE date_col > (SELECT MAX(date_col) FROM {{ this }})`, rows sharing the MAX date are silently dropped - change `>` to `>=` and add a `unique_key` to handle deduplication. Do NOT use `--full-refresh` as a fix - it bypasses incremental logic and the evaluation re-runs incrementally.
+**Debugging incremental models with missing rows**: inspect the boundary predicate first. If the model uses `WHERE date_col > (SELECT MAX(date_col) FROM {{ this }})`, rows sharing the MAX date are silently dropped - change `>` to `>=` and add a `unique_key` to handle deduplication. Do NOT use `--full-refresh` as a fix - it bypasses the incremental path that must remain correct.
 
 ## What to Trust in YML
 
 **Trust YML for**: column names (exact match required), column descriptions (what
 each column represents), ref dependencies (what tables to join).
-
-`not_null` YML tests are output assertions, not input filters. They describe
-what the output SHOULD contain - they do NOT constrain which rows appear.
-
-Apply `WHERE IS NOT NULL` ONLY on `_id` join-key columns - NULL keys cause
-cross-joins. Do NOT filter descriptive columns (name, title, date) based on
-`not_null` - NULL descriptive fields are valid data.
-
-not_null tests are NOT a reason to change JOIN type or driving table. If a
-metric column has a not_null test but would produce NULL from a LEFT JOIN
-(e.g., no matching spend data for some dimension values), do NOT switch to
-INNER JOIN to force non-NULL values. The domain skill's driving table rule
-determines the output population - not_null tests cannot override it.
 
 ## Google Sheets and CSV Sources
 
@@ -378,6 +383,6 @@ second argument for timeout in seconds (default 60).
 - For code-review or multiple-choice analysis tasks: trace every output column back through all CTEs to its source. A computed-but-unused column (calculated but never SELECTed) is a defect. Do not assert a data quality problem without querying the source to confirm it exists.
 - NEVER run `dbt` commands with `run_in_background` or `&` - dbt holds a database
   write lock while running
-- Do NOT modify `.yml` files unless fixing a missing `schema:` in a source definition
+- Do not modify existing `.yml` files unless the task asks or you fix a missing `schema:` in a source definition. Create YAML with a description, column docs, and tests for each new model.
 - Do NOT guess column names - use the YML contract as source of truth. Exception: if a pre-existing table or sibling model shows the column contains a display value (name, label) rather than a raw FK, follow that pattern (see dbt-write §3).
 - Do NOT install external packages - all dbt packages are pre-bundled in dbt_packages/

@@ -2,12 +2,11 @@
 """Pre-scan a dbt project and emit a structured context block.
 
 Used by the dbt-workflow SKILL.md via !`python3 scan_project.py` to inject
-project state into the skill prompt before Claude starts working.
+project state for the workflow before model work starts.
 
 Filesystem-only scan: YML models, SQL stubs, dependencies, required columns,
-sources, macros, and current_date hazards. Database-derived hints (lookup joins,
-staging gaps, parent-child driving tables, materialization) come from the
-analyze_project_db / list_tables MCP tools.
+sources, macros, and current_date hazards. Database facts (joins, materialization)
+come from MCP tools such as find_join_path, get_relationships and list_tables.
 """
 
 from __future__ import annotations
@@ -24,6 +23,22 @@ if sys.stdout.encoding != "utf-8":
 
 SKIP_DIRS = (".claude", "dbt_packages", "target", "macros", "__pycache__")
 
+# Directory names never walked into. SKIP_DIRS is a substring check applied to
+# whole paths after the fact; these prune the walk itself.
+# Macro bodies are useful but they are not the point of the scan; these keep the
+# section from crowding out everything else in the agent's context.
+MACRO_BODY_MAX_LINES = 40
+# Longest sibling list printed for one directory before it is summarised.
+SIBLING_LIST_MAX = 25
+MACRO_BODY_LINE_BUDGET = 400
+
+WALK_SKIP_DIRS = frozenset(
+    {
+        ".claude", "dbt_packages", "target", "__pycache__", ".git", ".venv",
+        "node_modules", "logs", ".ruff_cache", ".pytest_cache",
+    }
+)
+
 
 def _read_text(path: Path) -> str:
     """Read a text file, stripping UTF-8 BOM if present."""
@@ -33,7 +48,120 @@ def _read_text(path: Path) -> str:
     return raw.decode("utf-8", errors="replace")
 
 
-# ── YML parsing (no PyYAML dependency — regex-based) ──────────────────────
+# ── YML parsing ───────────────────────────────────────────────────────────
+#
+# dbt schema files are read with PyYAML, once each. The regex readers below are
+# the fallback for a runtime without PyYAML; they are indentation-fragile and
+# must not be trusted when the real parser is available. Both of these are the
+# same document to YAML, and the flush form inverts a depth-by-indent guess --
+# the model entry sits where a column entry sits in the indented form:
+#
+#     models:                     models:
+#       - name: my_model          - name: my_model
+#         columns:                  columns:
+#           - name: col_a           - name: col_a
+#
+# A repo can hold both styles, so guessing cost us 259 "models" in one file
+# that really declares 1, and those phantoms then drove a quadratic lookup.
+
+
+class YmlFacts:
+    """Everything one pass over the schema files yields."""
+
+    def __init__(self) -> None:
+        self.models: set[str] = set()
+        self.columns: dict[str, list[str]] = {}
+        self.descriptions: dict[str, str] = {}
+        self.materializations: dict[str, str] = {}
+        self.sources: list[str] = []
+        # model name -> the schema file that declares it, and its siblings there
+        self.declared_in: dict[str, str] = {}
+        self.siblings: dict[str, list[str]] = {}
+
+
+def _yaml_module():
+    try:
+        import yaml
+    except ImportError:
+        return None
+    return yaml
+
+
+def _facts_from_parsed(doc: object, rel_path: str, facts: YmlFacts) -> bool:
+    """Fold one parsed schema document into ``facts``. False when the document
+    is not a mapping we understand (caller falls back to the regex readers)."""
+    if not isinstance(doc, dict):
+        return False
+    models = doc.get("models")
+    if isinstance(models, list):
+        names_here = [
+            m["name"] for m in models if isinstance(m, dict) and isinstance(m.get("name"), str)
+        ]
+        for model in models:
+            if not isinstance(model, dict):
+                continue
+            name = model.get("name")
+            if not isinstance(name, str):
+                continue
+            facts.models.add(name)
+            facts.declared_in[name] = rel_path
+            facts.siblings[name] = [n for n in names_here if n != name]
+            cols = model.get("columns")
+            if isinstance(cols, list):
+                facts.columns[name] = [
+                    c["name"] for c in cols if isinstance(c, dict) and isinstance(c.get("name"), str)
+                ]
+            desc = model.get("description")
+            if isinstance(desc, str) and desc.strip():
+                facts.descriptions[name] = desc.strip()[:200].replace("\n", " ")
+            config = model.get("config")
+            if isinstance(config, dict) and isinstance(config.get("materialized"), str):
+                facts.materializations[name] = config["materialized"]
+    sources = doc.get("sources")
+    if isinstance(sources, list):
+        for source in sources:
+            if not isinstance(source, dict) or not isinstance(source.get("name"), str):
+                continue
+            src = source["name"]
+            tables = source.get("tables")
+            if isinstance(tables, list):
+                for table in tables:
+                    if isinstance(table, dict) and isinstance(table.get("name"), str):
+                        facts.sources.append(f"{src}.{table['name']}")
+            else:
+                facts.sources.append(src)
+    return True
+
+
+def collect_yml_facts(yml_files: list[Path], work_dir: Path) -> YmlFacts:
+    """One pass over the schema files. PyYAML when available, regex otherwise."""
+    facts = YmlFacts()
+    yaml = _yaml_module()
+    for yml_file in yml_files:
+        try:
+            text = _read_text(yml_file)
+        except Exception:
+            continue
+        rel = str(yml_file.relative_to(work_dir)) if yml_file.is_relative_to(work_dir) else yml_file.name
+        parsed_ok = False
+        if yaml is not None:
+            try:
+                parsed_ok = _facts_from_parsed(yaml.safe_load(text), rel, facts)
+            except Exception:
+                parsed_ok = False  # malformed file: fall back for this one
+        if not parsed_ok:
+            names = _extract_model_names(text)
+            facts.models.update(names)
+            for name in names:
+                facts.declared_in.setdefault(name, rel)
+                facts.siblings.setdefault(name, [n for n in names if n != name])
+            facts.columns.update(_extract_columns(text))
+            facts.descriptions.update(_extract_descriptions(text))
+            facts.materializations.update(_extract_materializations(text))
+            facts.sources.extend(_extract_sources(text))
+    return facts
+
+
 
 def _extract_model_names(yml_text: str) -> set[str]:
     names: set[str] = set()
@@ -174,7 +302,7 @@ def _extract_deps_from_sql(work_dir: Path) -> dict[str, list[str]]:
     """Extract ref() dependencies from SQL files."""
     deps: dict[str, list[str]] = {}
     ref_pat = re.compile(r"\{\{\s*ref\(['\"](\w+)['\"]\)\s*\}\}")
-    for sql_file in work_dir.rglob("*.sql"):
+    for sql_file in iter_project_files(work_dir, (".sql",)):
         if any(skip in str(sql_file) for skip in SKIP_DIRS):
             continue
         try:
@@ -192,7 +320,7 @@ def _extract_deps_from_sql(work_dir: Path) -> dict[str, list[str]]:
 def classify_sql_models(work_dir: Path) -> tuple[set[str], set[str]]:
     complete: set[str] = set()
     stubs: set[str] = set()
-    for sql_file in work_dir.rglob("*.sql"):
+    for sql_file in iter_project_files(work_dir, (".sql",)):
         if any(skip in str(sql_file) for skip in SKIP_DIRS):
             continue
         try:
@@ -222,19 +350,28 @@ def scan_macros(work_dir: Path) -> list[tuple[str, str]]:
     macros_dir = work_dir / "macros"
     if not macros_dir.exists():
         return []
-    pat = re.compile(r'\{%-?\s*macro\s+(\w+)\s*\(', re.IGNORECASE)
+    # One entry per macro, holding that macro's own block. Carrying the whole
+    # file per macro multiplied the output by the macros-per-file count: a
+    # 354-line file defining 20 macros emitted 7,080 lines, and one real project
+    # produced 18,837 lines of macro listing.
+    start_pat = re.compile(r"\{%-?\s*macro\s+(\w+)\s*\(([^)]*)\)", re.IGNORECASE)
+    end_pat = re.compile(r"\{%-?\s*endmacro\s*-?%\}", re.IGNORECASE)
     result: list[tuple[str, str]] = []
     seen: set[str] = set()
-    for sql_file in macros_dir.rglob("*.sql"):
+    for sql_file in iter_project_files(macros_dir, (".sql",)):
         try:
-            body = _read_text(sql_file).strip()
-            for m in pat.finditer(body):
-                name = m.group(1)
-                if name not in seen:
-                    seen.add(name)
-                    result.append((name, body))
+            text = _read_text(sql_file)
         except Exception:
-            pass
+            continue
+        for match in start_pat.finditer(text):
+            name = match.group(1)
+            if name in seen:
+                continue
+            seen.add(name)
+            end = end_pat.search(text, match.end())
+            block = text[match.start() : end.end() if end else match.end()]
+            signature = f"{name}({match.group(2).strip()})"
+            result.append((signature, block.strip()))
     return sorted(result, key=lambda x: x[0])
 
 
@@ -270,7 +407,7 @@ def _find_sibling_patterns(
 ) -> dict[str, list[tuple[str, int]]]:
     """For each stub/missing model, find complete siblings in the same directory."""
     sql_dirs: dict[str, Path] = {}
-    for sql_file in work_dir.rglob("*.sql"):
+    for sql_file in iter_project_files(work_dir, (".sql",)):
         if any(skip in str(sql_file) for skip in SKIP_DIRS):
             continue
         sql_dirs[sql_file.stem] = sql_file.parent
@@ -306,7 +443,7 @@ def scan_packages(work_dir: Path) -> str:
             lines.append(f"Package staging/intermediate models available: {', '.join(sorted(set(pkg_models))[:20])}")
 
     # Check for dbt.* namespace usage in existing SQL
-    for sql_file in work_dir.rglob("*.sql"):
+    for sql_file in iter_project_files(work_dir, (".sql",)):
         if any(skip in str(sql_file) for skip in SKIP_DIRS):
             continue
         try:
@@ -320,20 +457,77 @@ def scan_packages(work_dir: Path) -> str:
 
 # ── Main ──────────────────────────────────────────────────────────────────
 
-def main():
-    # Find the dbt project directory
-    work_dir = Path(sys.argv[1]).resolve() if len(sys.argv) > 1 else Path.cwd()
+def _resolve_work_dir(argv: list[str]) -> Path | None:
+    """The dbt project to scan.
 
-    # Look for dbt_project.yml to confirm we're in a dbt project
-    if not (work_dir / "dbt_project.yml").exists():
-        # Try common subdirectories
-        for subdir in work_dir.iterdir():
-            if subdir.is_dir() and (subdir / "dbt_project.yml").exists():
-                work_dir = subdir
-                break
-        else:
+    An explicit path wins, then ``SP_DBT_PROJECT_DIR`` or ``SP_PROJECT_DIR``
+    (the directory the platform configured for this project), then cwd. Only as
+    a last resort is a child guessed, and never when several children hold a
+    dbt_project.yml -- a repo with five dbt projects would otherwise be scanned
+    as whichever one the filesystem listed first.
+    """
+    candidates: list[Path] = []
+    if len(argv) > 1:
+        candidates.append(Path(argv[1]))
+    # SP_PROJECT_DIR is set for every agent run (claude_agent_options);
+    # SP_DBT_PROJECT_DIR is the explicit override.
+    configured = (
+        os.environ.get("SP_DBT_PROJECT_DIR", "").strip()
+        or os.environ.get("SP_PROJECT_DIR", "").strip()
+    )
+    base = Path(argv[1]) if len(argv) > 1 else Path.cwd()
+    if configured:
+        candidates.append(base / configured)
+        candidates.append(Path(configured))
+    candidates.append(Path.cwd())
+    for candidate in candidates:
+        try:
+            resolved = candidate.resolve()
+        except OSError:
+            continue
+        if (resolved / "dbt_project.yml").is_file():
+            return resolved
+    root = candidates[0].resolve()
+    children = sorted(
+        child for child in root.iterdir() if child.is_dir() and (child / "dbt_project.yml").is_file()
+    ) if root.is_dir() else []
+    if len(children) == 1:
+        return children[0]
+    if len(children) > 1:
+        names = ", ".join(child.name for child in children)
+        print(f"(several dbt projects here: {names})")
+        print("(pass the project directory, or set SP_DBT_PROJECT_DIR — skip project scan)")
+        return None
+    return None
+
+
+_WALK_CACHE: dict[tuple[str, tuple[str, ...]], list[Path]] = {}
+
+
+def iter_project_files(work_dir: Path, suffixes: tuple[str, ...]) -> list[Path]:
+    """Files under ``work_dir`` with these suffixes, pruning skipped directories
+    during the walk. ``rglob`` descends into dbt_packages/target/.git first and
+    filters afterwards, which is both slower and easy to get wrong."""
+    key = (str(work_dir), suffixes)
+    cached = _WALK_CACHE.get(key)
+    if cached is not None:
+        return cached
+    found: list[Path] = []
+    for dirpath, dirnames, filenames in os.walk(work_dir):
+        dirnames[:] = [d for d in dirnames if d not in WALK_SKIP_DIRS and not d.startswith(".")]
+        for filename in filenames:
+            if filename.endswith(suffixes):
+                found.append(Path(dirpath) / filename)
+    _WALK_CACHE[key] = found
+    return found
+
+
+def main():
+    work_dir = _resolve_work_dir(sys.argv)
+    if work_dir is None:
+        if not any(Path(a).is_dir() for a in sys.argv[1:2]):
             print("(no dbt_project.yml found — skip project scan)")
-            return
+        return
 
     # Scan YML
     yml_models: set[str] = set()
@@ -342,19 +536,13 @@ def main():
     all_materializations: dict[str, str] = {}
     all_sources: list[str] = []
 
-    for ext in ("*.yml", "*.yaml"):
-        for yml_file in work_dir.rglob(ext):
-            if any(skip in str(yml_file) for skip in SKIP_DIRS):
-                continue
-            try:
-                text = _read_text(yml_file)
-                yml_models.update(_extract_model_names(text))
-                all_columns.update(_extract_columns(text))
-                all_descriptions.update(_extract_descriptions(text))
-                all_materializations.update(_extract_materializations(text))
-                all_sources.extend(_extract_sources(text))
-            except Exception:
-                pass
+    yml_files = iter_project_files(work_dir, (".yml", ".yaml"))
+    facts = collect_yml_facts(yml_files, work_dir)
+    yml_models = facts.models
+    all_columns = facts.columns
+    all_descriptions = facts.descriptions
+    all_materializations = facts.materializations
+    all_sources = facts.sources
 
     # Classify SQL
     complete_models, stub_models = classify_sql_models(work_dir)
@@ -362,8 +550,7 @@ def main():
     missing_models = yml_models - sql_models
 
     # Complete models = those with a non-stub SQL file. Materialization status
-    # (which exist as tables) and other DB-derived hints come from the
-    # analyze_project_db MCP tool, not this filesystem scanner.
+    # (which exist as tables) comes from MCP tools, not this filesystem scanner.
     complete = yml_models & complete_models
 
     # Dependencies
@@ -387,23 +574,11 @@ def main():
     if missing_models:
         for m in sorted(missing_models):
             mat = all_materializations.get(m, "table")
-            # Find which YML file defines this model and list sibling models
-            yml_file = ""
-            siblings_in_yml = []
-            for yf in (work_dir / "models").rglob("*.yml"):
-                if "dbt_packages" in str(yf):
-                    continue
-                try:
-                    import yaml
-                    with open(yf) as f:
-                        data = yaml.safe_load(f)
-                    if data and "models" in data:
-                        names = [md.get("name", "") for md in data["models"]]
-                        if m in names:
-                            yml_file = str(yf.relative_to(work_dir))
-                            siblings_in_yml = [n for n in names if n != m]
-                except Exception:
-                    pass
+            # Both recorded by the single YML pass. Re-parsing every schema
+            # file per missing model was O(models x files) yaml.safe_load calls
+            # and hung for minutes on a real project.
+            yml_file = facts.declared_in.get(m, "")
+            siblings_in_yml = facts.siblings.get(m, [])
             sib_str = f"  siblings: {', '.join(siblings_in_yml)}" if siblings_in_yml else ""
             yml_str = f"  YML: {yml_file}" if yml_file else ""
             print(f"  → {m}.sql  (materialized={mat}){yml_str}")
@@ -468,9 +643,28 @@ def main():
     sibling_info = _find_sibling_patterns(work_dir, all_work, complete_models | stub_models, all_columns)
     if sibling_info:
         print("SIBLING PATTERNS (complete models in same directory — read for column conventions):")
-        for model, siblings in sorted(sibling_info.items()):
-            sib_strs = [f"{s} ({c} cols)" if c else f"{s} (? cols)" for s, c in siblings]
-            print(f"  {model}: {', '.join(sib_strs)}")
+        # Grouped by the sibling set, not printed per model. Every model in a
+        # directory has the same siblings, so the per-model form repeated the
+        # directory's whole model list once per model: 150 KB for one project,
+        # quadratic in models per directory.
+        # Key on the directory's whole model set (siblings + the model itself),
+        # which is identical for every model in that directory. Keying on the
+        # sibling list alone never collapses, because it excludes self.
+        by_siblings: dict[frozenset[str], list[str]] = {}
+        members: dict[frozenset[str], list[tuple[str, int]]] = {}
+        for model, siblings in sibling_info.items():
+            key = frozenset([model, *(name for name, _ in siblings)])
+            by_siblings.setdefault(key, []).append(model)
+            members.setdefault(key, sorted({*siblings, *[(model, len(all_columns.get(model, [])))]}))
+        for key, models in sorted(by_siblings.items(), key=lambda kv: sorted(kv[1])[0]):
+            siblings = members[key]
+            shown = list(siblings)[:SIBLING_LIST_MAX]
+            sib_strs = [f"{s} ({c} cols)" if c else f"{s} (? cols)" for s, c in shown]
+            more = len(siblings) - len(shown)
+            if more > 0:
+                sib_strs.append(f"... {more} more")
+            print(f"  models in this directory ({len(models)} being worked on): {', '.join(sorted(models))}")
+            print(f"    directory contents: {', '.join(sib_strs)}")
         print()
 
     # Reverse dependencies — models that ref() other models
@@ -484,6 +678,52 @@ def main():
         print("REFERENCING MODELS (models that ref() these — read for column conventions):")
         for model, consumers in sorted(reverse_deps.items()):
             print(f"  {model} is referenced by: {', '.join(sorted(consumers))}")
+        print()
+
+    # Upstream convention — who reads what, and layering violations worth copying
+    model_paths: dict[str, str] = {}
+    for sql_file in iter_project_files(work_dir, (".sql",)):
+        if any(skip in str(sql_file) for skip in SKIP_DIRS):
+            continue
+        model_paths[sql_file.stem] = str(sql_file.relative_to(work_dir)).replace("\\", "/")
+
+    def _model_layer(name: str) -> str:
+        p = model_paths.get(name, "")
+        if name.startswith("stg_") or "/staging/" in p or p.startswith("staging/"):
+            return "staging"
+        if name.startswith("int_") or "/intermediate/" in p or p.startswith("intermediate/"):
+            return "intermediate"
+        return "mart"
+
+    all_consumers: dict[str, list[str]] = {}
+    for src_model, ref_list in deps.items():
+        for ref_name in ref_list:
+            if src_model != ref_name:
+                all_consumers.setdefault(ref_name, []).append(src_model)
+
+    int_summary: list[str] = []
+    convention_lines: list[str] = []
+    for m, consumers in sorted(all_consumers.items()):
+        layer = _model_layer(m)
+        if layer == "intermediate":
+            marts = sorted(c for c in set(consumers) if _model_layer(c) == "mart")
+            if marts:
+                int_summary.append(f"  {len(marts)} mart(s) read {m}: {', '.join(marts)}")
+        elif layer == "staging":
+            wrapping_ints = sorted(c for c in set(consumers) if _model_layer(c) == "intermediate")
+            direct_marts = sorted(c for c in set(consumers) if _model_layer(c) == "mart")
+            if wrapping_ints and direct_marts:
+                convention_lines.append(
+                    f"  {m}: intermediate(s) {', '.join(wrapping_ints)} wrap it, and mart(s) "
+                    f"{', '.join(direct_marts)} also read it directly — check which convention "
+                    f"your model's siblings follow"
+                )
+    if int_summary or convention_lines:
+        print("UPSTREAM CONVENTION (who reads what — new models follow the project's layering):")
+        for line in int_summary[:12]:
+            print(line)
+        for line in convention_lines[:12]:
+            print(line)
         print()
 
     # Dependencies for models to build/rewrite
@@ -522,10 +762,23 @@ def main():
     macros = scan_macros(work_dir)
     if macros:
         print("AVAILABLE MACROS (use these in your models — they exist for a reason):")
+        # Signatures are the part that changes what the agent writes. Bodies are
+        # included only while they stay within budget; `Read` the file for the
+        # rest. Printing every body in full is what made this section 18k lines.
+        budget = MACRO_BODY_LINE_BUDGET
         for name, body in macros:
+            lines = body.splitlines()
             print(f"\n  ### {name}")
-            for line in body.splitlines():
+            if budget <= 0:
+                continue
+            shown = lines[: min(len(lines), budget, MACRO_BODY_MAX_LINES)]
+            for line in shown:
                 print(f"  {line}")
+            budget -= len(shown)
+            if len(shown) < len(lines):
+                print(f"  ... {len(lines) - len(shown)} more lines — Read the macro file for the rest")
+        if budget <= 0:
+            print("\n  (macro bodies truncated — signatures above are complete)")
         print()
 
     # Packages
@@ -543,16 +796,14 @@ def main():
         print("  Load `/signalpilot-dbt:dbt-snapshots` skill. Run DESCRIBE on source tables for exact column casing.")
         print()
 
-    # Database-derived hints (lookup joins, staging-vs-raw gaps, parent-child
-    # driving tables) come from the analyze_project_db MCP tool — not this scanner.
-    print("DB HINTS: call analyze_project_db(connection_name) for lookup joins, "
-          "staging-vs-raw gaps, and parent-child driving-table hints.")
+    # Join facts come from MCP tools, not this filesystem scanner.
+    print("JOINS: use find_join_path or get_relationships for join columns between tables.")
     print()
 
     # current_date warnings
     cd_hits = scan_current_date(work_dir)
     if cd_hits:
-        print("WARNING — FILES USING current_date (must fix with fix_date_spine_hazards):")
+        print("WARNING — FILES USING current_date (fix date spines and date caps with fix_date_spine_hazards; keep current_date that implements a present-anchored YML rule like 'current fiscal year' or 'as of today'):")
         print("\n".join(cd_hits))
         print()
 
