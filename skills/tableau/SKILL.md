@@ -68,15 +68,43 @@ Read these files in this skill directory:
    same workbook name, the same project, and `overwrite` true. If the user
    asks for a new or copied dashboard, use a new workbook name.
 7. Do not delete Tableau content. There is no delete tool.
-   The org can limit publishing to some projects. Reads work everywhere. If a
-   publish fails because of the limit, publish into one of the allowed projects
-   that the error lists. Do not ask the user to remove the limit.
+   The sender's role sets which Tableau projects you can use, for reads and
+   for publishing. Content in other projects is hidden. If a call fails
+   because of the role, use a project that the error lists, or tell the user
+   their role does not include that content. Do not try to work around it.
+   The org can also set one project for data sources. Then leave `project`
+   empty when you publish a data source, and publish workbooks elsewhere.
 8. Never write a password, token, or secret into a file.
 9. If a step fails, read the error, fix the cause, and try again. Do not
    report success until the render shows the data.
 10. Design is part of the task. Every dashboard you build or change must meet
     `DESIGN.md`. Use the design layer for new pages. Review each render with
     the checklist in `DESIGN.md` and fix what fails before you report.
+11. Do not publish a duplicate data source. Before you publish one, list the
+    data sources with `tableau_search` (`kind: "datasource"`, empty query).
+    For each one with a similar name or on the same tables, get its source
+    with `tableau_lineage` (`datasource`).
+    - If one reads the same table, or SQL that gives the same rows, on the
+      same connection, use it. Do not publish another one.
+    - If the name is taken by a data source with a different source, choose a
+      new name. Overwrite a data source only when the user asks you to change
+      that data source.
+    - Tell the user which data source you used, or why you added a new one.
+12. Estimate every new data source before you publish it. A live data
+    source runs its query on the warehouse each time a dashboard loads. Call
+    `estimate_query_cost` with the connection and the data source SQL. For a
+    `table` data source, estimate the heaviest query the dashboard needs (the
+    aggregate over the table). Do not run the query to test its speed.
+    - If the p90 is 2 minutes or less, publish.
+    - If the p90 is more than 2 minutes, make the SQL faster and estimate
+      again. For example: filter to the dates the page shows, select only the
+      columns the page uses, aggregate before you join, and remove joins that
+      do not change the numbers. The numbers must stay the same.
+    - If the p90 is still more than 2 minutes, do not publish. Tell the user
+      that the query is heavy, give the p90, and recommend a dbt mart that
+      stores the rollup. Wait for the answer. If the user agrees, build the
+      mart and publish the data source on it with `table`. If the user wants
+      the direct query, publish it.
 
 ## Flow A: edit an existing dashboard
 
